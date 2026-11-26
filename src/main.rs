@@ -1,63 +1,34 @@
-//! Blink the onboard D4 LED on the LuatOS ESP32-C3 Core Board.
-//!
-//! GPIO12 is available on this board with external flash in DIO mode.
+//! riscfree Phase 1: Execute hand-written RISC-V assembly.
 
 #![no_std]
 #![no_main]
 
-use core::{convert::Infallible, future::pending};
+use core::{arch::global_asm, convert::Infallible, future::pending};
 use embassy_executor::Spawner;
-use embassy_time::Duration;
 use esp_backtrace as _;
 use log::info;
 
-use device_envoy_esp::{
-    Result, init_and_start, led,
-    led::{Led as _, LedLevel, OnLevel},
-};
+use device_envoy_esp::{Result, init_and_start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-const LED_ON_LEVEL: OnLevel = OnLevel::High;
+global_asm!(
+    ".section .text.riscfree_add, \"ax\"",
+    ".balign 4",
+    ".global riscfree_add",
+    ".type riscfree_add, @function",
+    ".option push",
+    ".option norvc",
+    ".option norelax",
+    "riscfree_add:",
+    "    add a0, a0, a1",
+    "    jalr zero, 0(ra)",
+    ".size riscfree_add, . - riscfree_add",
+    ".option pop",
+);
 
-const DOT_MS: u64 = 200;
-const DASH_MS: u64 = DOT_MS * 3;
-const SYMBOL_GAP_MS: u64 = DOT_MS;
-const LETTER_GAP_MS: u64 = DOT_MS * 3;
-const WORD_GAP_MS: u64 = DOT_MS * 7;
-
-const DOT_DURATION: Duration = Duration::from_millis(DOT_MS);
-const DASH_DURATION: Duration = Duration::from_millis(DASH_MS);
-const SYMBOL_GAP: Duration = Duration::from_millis(SYMBOL_GAP_MS);
-const LETTER_GAP: Duration = Duration::from_millis(LETTER_GAP_MS);
-const WORD_GAP: Duration = Duration::from_millis(WORD_GAP_MS);
-
-const SOS: [(LedLevel, Duration); 18] = [
-    (LedLevel::On, DOT_DURATION),
-    (LedLevel::Off, SYMBOL_GAP),
-    (LedLevel::On, DOT_DURATION),
-    (LedLevel::Off, SYMBOL_GAP),
-    (LedLevel::On, DOT_DURATION),
-    (LedLevel::Off, LETTER_GAP),
-    (LedLevel::On, DASH_DURATION),
-    (LedLevel::Off, SYMBOL_GAP),
-    (LedLevel::On, DASH_DURATION),
-    (LedLevel::Off, SYMBOL_GAP),
-    (LedLevel::On, DASH_DURATION),
-    (LedLevel::Off, LETTER_GAP),
-    (LedLevel::On, DOT_DURATION),
-    (LedLevel::Off, SYMBOL_GAP),
-    (LedLevel::On, DOT_DURATION),
-    (LedLevel::Off, SYMBOL_GAP),
-    (LedLevel::On, DOT_DURATION),
-    (LedLevel::Off, WORD_GAP),
-];
-
-led! {
-    SosLed {
-        pin: GPIO12,
-        max_steps: 20,
-    }
+unsafe extern "C" {
+    fn riscfree_add(a: u32, b: u32) -> u32;
 }
 
 #[esp_rtos::main]
@@ -67,13 +38,28 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 async fn inner_main(spawner: Spawner) -> Result<Infallible> {
-    init_and_start!(p);
+    init_and_start!(_p);
 
     esp_println::logger::init_logger(log::LevelFilter::Info);
-    info!("SOS plain LED blinky starting on GPIO12 (LuatOS ESP32-C3 Core Board)");
+    info!("riscfree Phase 1 starting");
 
-    let sos_led = SosLed::new(p.GPIO12, LED_ON_LEVEL, spawner)?;
-    sos_led.animate(SOS);
+    let test_cases: [(u32, u32); 5] = [
+        (20, 22),
+        (0, 0),
+        (u32::MAX, 0),
+        (u32::MAX, 1),
+        (u32::MAX, u32::MAX),
+    ];
+
+    for (a, b) in test_cases {
+        let actual = unsafe { riscfree_add(a, b) };
+        let expected = a.wrapping_add(b);
+
+        info!("{a} + {b} = {actual}");
+        assert_eq!(actual, expected);
+    }
+
+    info!("riscfree: All tests passed");
 
     pending().await
 }
