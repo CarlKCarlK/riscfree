@@ -96,8 +96,8 @@ theorem programDecoded :
       some (.addi 10 6 0), some (.jalr 0 1 0)] := by
   simp [program, code, decode, field, signedImmediate]
 
--- This hand-written RV32I subset is part of the trusted base. The proof does
--- not establish correspondence with Sail or verify the processor hardware.
+-- This compact RV32I model states the loop invariants. The Sail refinement for
+-- the linked routine is checked in Riscfree.PopcountSimulation.
 def step (codeBase : Word) (state : State) : Option State := do
   if state.pc.toNat % 4 ≠ 0 then none else
   let instruction ← program[state.pc.toNat / 4]?.join
@@ -373,8 +373,7 @@ theorem loadedExit (state : State) : (bitScan 32 (loadedWord state)).pc = 36#32 
     (wordResult state).pc = (if state.t0 - 1#32 = 0#32 then 48#32 else 8#32) := by
   have words := bitScanPreserves State.t0 bitKeepsWordCount 32 (loadedWord state)
   simp only [wordResult, advanceWord, words]
-  simp only [loadedWord]
-  split <;> simp_all
+  simp only [loadedWord] <;> (split <;> simp_all)
 
 @[simp] theorem wordResultT0 (state : State) : (wordResult state).t0 = state.t0 - 1#32 := by
   have words := bitScanPreserves State.t0 bitKeepsWordCount 32 (loadedWord state)
@@ -507,7 +506,3 @@ def verifyElf (path : String) : IO Unit := do
   IO.println s!"popcount128: verified all {size} linked bytes"
 
 end Riscfree
-
-def main (args : List String) : IO Unit := do
-  let [path] := args | throw (IO.userError "Usage: lean --run proof/Popcount.lean ELF")
-  Riscfree.verifyElf path

@@ -1,0 +1,16 @@
+name = "riscfree"
+moreLeanArgs = ["--tstack=400000"]
+defaultTargets = ["Riscfree"]
+
+[leanOptions]
+warningAsError = true
+
+[[require]]
+name = "pico-fv"
+git = "https://github.com/NethermindEth/pico-fv"
+rev = "a7f9a0976e245aeef89c3f02c51ae85023207b53"
+
+[[lean_lib]]
+name = "Riscfree"
+srcDir = "proof"
+roots = ["Riscfree", "Popcount"]

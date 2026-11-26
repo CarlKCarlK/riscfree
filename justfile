@@ -8,4 +8,5 @@ build:
     cargo build --locked --release
 
 prove: build
-    lean -DwarningAsError=true --run proof/Popcount.lean target/riscv32imc-unknown-none-elf/release/riscfree
+    lake build
+    lake env lean -DwarningAsError=true --run proof/VerifyElf.lean target/riscv32imc-unknown-none-elf/release/riscfree

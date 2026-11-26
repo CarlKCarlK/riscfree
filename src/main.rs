@@ -3,7 +3,11 @@
 #![no_std]
 #![no_main]
 
-use core::{arch::global_asm, hint::spin_loop, panic::PanicInfo};
+use core::{
+    arch::global_asm,
+    hint::{black_box, spin_loop},
+    panic::PanicInfo,
+};
 use esp_println::println;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -11,7 +15,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 global_asm!(include_str!("popcount.S"));
 global_asm!(include_str!("watchdog.S"));
 
-static INPUT: u128 = 0xD3A5_7C19_02EF_B648_9D30_6A17_C2F5_804B;
+const INPUT: u128 = 0xD3A5_7C19_02EF_B648_9D30_6A17_C2F5_804B;
 const _: () = assert!(align_of::<u128>() >= align_of::<u32>());
 
 unsafe extern "C" {
@@ -26,9 +30,11 @@ fn main() -> ! {
     // SAFETY: This firmware owns the RTC watchdogs and runs without interrupts.
     unsafe { stop_boot_watchdogs() };
 
-    // SAFETY: INPUT provides 16 readable bytes at a 4-byte-aligned address.
+    // Materialize the input on the stack in data RAM for the assembly call.
+    let input = black_box(INPUT);
+    // SAFETY: The local provides 16 readable bytes at a 4-byte-aligned address.
     // The assembly reads four words and never writes through the pointer.
-    let count = unsafe { popcount128((&raw const INPUT).cast()) };
+    let count = unsafe { popcount128((&raw const input).cast()) };
     println!("popcount(0x{INPUT:032x}) = {count}");
     assert_eq!(count, EXPECTED_COUNT);
 
