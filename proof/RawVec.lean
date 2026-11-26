@@ -407,7 +407,6 @@ private def returned (base returnAddress : Word) (call : Call) (state : Snapshot
     a3 := call.length + 1
     a5 := call.data }
 
-set_option maxHeartbeats 1500000 in
 private theorem finish (environment : Environment base returnAddress original)
     (header : Header original call) (buffer : Buffer base original call)
     (state : Snapshot) (memory : ByteMemory) (progress : Progress base original call call.index.toNat memory)
@@ -415,41 +414,39 @@ private theorem finish (environment : Environment base returnAddress original)
     (indexBound : call.index.toNat ≤ call.length.toNat) :
     run 8 (synced base original memory state) =
       some (synced base original (finalMemory call memory) (returned base returnAddress call state)) := by
+  -- Substitute the argument registers into the snapshot, so every later
+  -- snapshot field and stored value is literally the call's value. Rewriting
+  -- one step's statement instead makes its snapshot differ from the goal's.
+  obtain ⟨pc, a0, a1, a2, a3, a4, a5, a6, a7⟩ := state
+  obtain ⟨argument, index, value, length⟩ := inputs
+  dsimp only at atFinish argument index value length
+  subst atFinish argument index value length
   let platform := environment.platform memory progress.code
   let inserted := environment.platform (insertedMemory call memory)
     (storeKeepsCode progress.code (buffer.awayFromCode _ (Nat.le_refl _) indexBound) _)
   let completed := environment.platform (finalMemory call memory)
     (storeKeepsCode (storeKeepsCode progress.code
       (buffer.awayFromCode _ (Nat.le_refl _) indexBound) call.value) buffer.lengthAwayFromCode _)
-  obtain ⟨argument, index, value, length⟩ := inputs
-  have read : Readable original state.a0 := argument ▸ buffer.dataReadable
-  have contents : WordAt memory state.a0.toNat call.data := argument ▸ progress.data
-  refine runStep (step58 platform state atFinish call.data read contents)
+  refine runStep (step58 platform _ rfl call.data buffer.dataReadable progress.data)
     (runStep (step5c platform _ rfl) (runStep (step60 platform _ rfl)
       (runStep (step64 platform _ rfl) ?_)))
-  have effective : call.data + (state.a1 <<< (2 : Nat)) = call.wordSlot call.index.toNat := by
-    rw [index]
+  have effective : call.data + (call.index <<< (2 : Nat)) = call.wordSlot call.index.toNat := by
     simpa only [ofWordNat] using slotAdd buffer indexBound
-  rw [effective, length]
+  dsimp only
+  rw [effective]
   have stored := step68 platform
-    { state with
-      pc := 104
-      a1 := call.wordSlot call.index.toNat
-      a3 := call.length + 1
-      a5 := call.data } rfl (buffer.writable _ (Nat.le_refl _) indexBound)
-  rw [slotNat buffer indexBound, value] at stored
+    { pc := 104, a0 := call.header, a1 := call.wordSlot call.index.toNat, a2 := call.value,
+      a3 := call.length + 1, a4 := a4, a5 := call.data, a6 := a6, a7 := a7 }
+    rfl (buffer.writable _ (Nat.le_refl _) indexBound)
+  dsimp only at stored
+  rw [slotNat buffer indexBound] at stored
   refine runStep stored ?_
-  have lengthWrite : Writable original (state.a0 + 4) := argument ▸ buffer.lengthWritable
   have updated := step6c inserted
-    { state with
-      pc := 108
-      a1 := call.wordSlot call.index.toNat
-      a3 := call.length + 1
-      a5 := call.data } rfl lengthWrite
-  have address : (state.a0 + 4).toNat = call.header.toNat + 4 := by
-    rw [argument]
-    exact headerOffset header 4 (by decide)
-  rw [address] at updated
+    { pc := 108, a0 := call.header, a1 := call.wordSlot call.index.toNat, a2 := call.value,
+      a3 := call.length + 1, a4 := a4, a5 := call.data, a6 := a6, a7 := a7 }
+    rfl buffer.lengthWritable
+  dsimp only at updated
+  rw [headerOffset header 4 (by decide)] at updated
   exact runStep updated (runStep (step70 completed _ rfl) (runStep (step74 completed _ rfl) rfl))
 
 private theorem finalWords (buffer : Buffer base original call)
