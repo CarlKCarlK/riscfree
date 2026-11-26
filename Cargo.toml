@@ -15,6 +15,11 @@ esp32c3 = [
 ]
 # Call the SWAR popcount instead of the bit loop.
 swar = []
+raw-vec-demo = []
+
+[[example]]
+name = "raw_vec"
+required-features = ["raw-vec-demo", "esp32c3"]
 
 [target.'cfg(target_os = "none")'.dependencies]
 esp-hal = { version = "1.1.0", default-features = false, features = ["rt"] }

@@ -8,6 +8,15 @@ check:
 build:
     cargo build --locked --release
 
+# Build the ESP32-C3 RawVec demo and check the linked insertion instructions.
+build-raw-vec:
+    cargo build --locked --release --example raw_vec --features raw-vec-demo
+    python3 research/vec-ffi/linked/check_elf.py target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+
+# Flash the checked RawVec demo and print its UART assertions.
+run-raw-vec: build-raw-vec
+    espflash flash --monitor target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+
 # Check the Lean proofs and their axioms, then compare each routine's linked bytes in the firmware that calls it.
 prove:
     python3 scripts/check_proof_sources.py
