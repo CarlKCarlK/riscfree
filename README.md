@@ -1,8 +1,9 @@
 # riscfree
 
-ESP32-C3 firmware for the LuatOS Core Board. The app in `src/main.rs` blinks
-SOS on the onboard D4 LED on GPIO12. This board uses external SPI flash in DIO
-mode.
+ESP32-C3 firmware for the LuatOS Core Board. The Rust entry point and boot
+metadata live in `src/main.rs`. The assembly program in `src/blink.S` configures
+GPIO12 and repeatedly toggles the active-high onboard D4 LED. It uses a busy
+loop for timing. This board uses external SPI flash in DIO mode.
 
 Install the Rust target and flashing tool:
 
