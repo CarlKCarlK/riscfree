@@ -27,8 +27,8 @@ so every instruction is a 32-bit word, and `zext.b` links as `andi a0, a1, 255`.
 
 ## Lean proof
 
-Run `just prove` with Elan and GNU binutils installed. It checks the Lean
-proofs, then builds each firmware variant and compares the linked bytes of the
+Run `just prove` with Elan, Python 3, and GNU binutils installed. It checks
+the Lean proofs, then builds each firmware variant and compares the linked bytes of the
 routine it calls with the instruction words decoded by Sail: all 56 bytes of
 `popcount128` and all 112 bytes of `popcount128_swar`. Lake uses the pinned
 Pico FV and Sail dependencies in `lake-manifest.json` and Lean 4.28.0-rc1.
@@ -43,6 +43,21 @@ the routine writes: `a0` and `t0`–`t4` for the bit loop, and `a0`–`a7` and `
 for SWAR. Both theorems depend on exactly the same axioms, all of which come
 from the Sail model and Lean's standard axioms. Neither proof uses `sorry`,
 `native_decide`, or `bv_decide`.
+
+`just prove` enforces this with two checks:
+
+- `scripts/check_proof_sources.py` scans `proof/` (outside comments and
+  strings) for shortcuts such as `sorry`, `native_decide`, `bv_decide`, new
+  `axiom` declarations, `unsafe` code, `#exit`, and code that runs during
+  elaboration.
+- `scripts/AxiomAudit.lean` imports every module under `proof/` and collects
+  the axioms the kernel recorded for all their declarations. It accepts only
+  Lean's `propext`, `Classical.choice`, and `Quot.sound`, plus the 69 listed
+  Sail extern stubs (floating-point, reservation, terminal, and entropy
+  functions). Each stub must be declared in `LeanRV32D.RiscvExtras` and have a
+  nonempty type, so assuming it cannot introduce a contradiction. Sail's Lean
+  backend declares these externs as axioms, and they reach every theorem about
+  `step` because `execute` covers every instruction.
 
 The per-word SWAR identity is proved in the kernel. Each word is split into
 eight nibbles. Every SWAR step either acts on each nibble separately or moves

@@ -8,9 +8,11 @@ check:
 build:
     cargo build --locked --release
 
-# Check the Lean proofs, then compare each routine's linked bytes in the firmware that calls it.
+# Check the Lean proofs and their axioms, then compare each routine's linked bytes in the firmware that calls it.
 prove:
+    python3 scripts/check_proof_sources.py
     lake build
+    lake env lean --run scripts/AxiomAudit.lean
     cargo build --locked --release
     just verify-elf Popcount
     cargo build --locked --release --features swar
