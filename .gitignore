@@ -1,3 +1,4 @@
 /target
 .codex
 /.lake
+scripts/*.pyc
