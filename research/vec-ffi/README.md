@@ -60,10 +60,10 @@ On an ESP32-C3 revision v0.4, the demo printed:
 RawVec<u32> PASS: [10, 20, 30, 40]; statuses [0, 0, 1, 2]; invalid length rejected
 ```
 
-That run predates the call shim in
-[examples/raw_vec_call.S](../../examples/raw_vec_call.S), which gives the
-routine the word-aligned return address the proof requires. The demo with the
-shim has not yet been run on the board.
+The demo now calls the routine through the shim in
+[examples/raw_vec_call.S](../../examples/raw_vec_call.S), which gives it the
+word-aligned return address the proof requires. On November 26, 2026, the shim
+build passed the same board test with identical output.
 
 The demo asserts the final contents and checks guard words on both sides of the
 backing buffer. The linked-byte check and board run are the inputs to a future
