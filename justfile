@@ -22,12 +22,20 @@ prove:
     python3 scripts/check_proof_sources.py
     lake build
     lake env lean --run scripts/AxiomAudit.lean
+    just axiom-paths
     cargo build --locked --release
     just verify-elf Popcount
     cargo build --locked --release --features swar
     just verify-elf PopcountSwar
     just build-raw-vec
     just verify-elf RawVec target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+
+# Explain each axiom the RawVec theorem reaches, and fail unless the executed instructions reach only the expected ones.
+axiom-paths:
+    lake env lean --run scripts/AxiomPaths.lean RawVec Riscfree.RawVec.rawVecU32InsertSailCorrect \
+        --block LeanRV32D.Functions.execute \
+        {{ prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR") }} \
+        {{ prepend("--expect ", "propext Quot.sound Classical.choice load_reservation match_reservation plat_term_write sys_enable_experimental_extensions") }}
 
 # Optional: replay every proof module through Lean's kernel with leanchecker. Not part of `prove`.
 # One module at a time: checking them all in one process runs out of memory.

@@ -45,7 +45,7 @@ for SWAR. Both theorems depend on exactly the same axioms, all of which come
 from the Sail model and Lean's standard axioms. Neither proof uses `sorry`,
 `native_decide`, or `bv_decide`.
 
-`just prove` enforces this with two checks:
+`just prove` enforces this with three checks:
 
 - `scripts/check_proof_sources.py` scans `proof/` (outside comments and
   strings) for shortcuts such as `sorry`, `native_decide`, `bv_decide`, new
@@ -59,6 +59,11 @@ from the Sail model and Lean's standard axioms. Neither proof uses `sorry`,
   nonempty type, so assuming it cannot introduce a contradiction. Sail's Lean
   backend declares these externs as axioms, and they reach every theorem about
   `step` because `execute` covers every instruction.
+- `scripts/AxiomPaths.lean` (`just axiom-paths`) prints a shortest dependency
+  chain to each axiom of `rawVecU32InsertSailCorrect`. It fails unless the
+  instructions the routine executes reach only Lean's three axioms and four
+  Sail stubs. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) explains
+  why none of the four affects this routine.
 
 Sail decodes each linked word through a pre-simplified decoder.
 `proof/Riscfree/RV32/DecoderNormalForm.lean` runs `simp` once over Sail's
