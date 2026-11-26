@@ -1,0 +1,443 @@
+
+target/riscv32im-unknown-none-elf/release-3/build/vec-ffi-research/6a16f3ed40e29463/out/vec_ffi_research-6a16f3ed40e29463.o:	file format elf32-littleriscv
+
+Disassembly of section .text.custom_pair_insert:
+
+00000000 <custom_pair_insert>:
+       0: 00452703     	lw	a4, 0x4(a0)
+       4: 00852783     	lw	a5, 0x8(a0)
+       8: 00e7f663     	bgeu	a5, a4, 0x14 <custom_pair_insert+0x14>
+       c: 00300513     	li	a0, 0x3
+      10: 00008067     	ret
+      14: 00b77663     	bgeu	a4, a1, 0x20 <custom_pair_insert+0x20>
+      18: 00200513     	li	a0, 0x2
+      1c: 00008067     	ret
+      20: 00f71663     	bne	a4, a5, 0x2c <custom_pair_insert+0x2c>
+      24: 00100513     	li	a0, 0x1
+      28: 00008067     	ret
+      2c: fe010113     	addi	sp, sp, -0x20
+      30: 00112e23     	sw	ra, 0x1c(sp)
+      34: 00812c23     	sw	s0, 0x18(sp)
+      38: 00912a23     	sw	s1, 0x14(sp)
+      3c: 01212823     	sw	s2, 0x10(sp)
+      40: 01312623     	sw	s3, 0xc(sp)
+      44: 00052403     	lw	s0, 0x0(a0)
+      48: 00359793     	slli	a5, a1, 0x3
+      4c: 40b70733     	sub	a4, a4, a1
+      50: 00f40433     	add	s0, s0, a5
+      54: 00840593     	addi	a1, s0, 0x8
+      58: 00371713     	slli	a4, a4, 0x3
+      5c: 00050493     	mv	s1, a0
+      60: 00058513     	mv	a0, a1
+      64: 00040593     	mv	a1, s0
+      68: 00060913     	mv	s2, a2
+      6c: 00070613     	mv	a2, a4
+      70: 00068993     	mv	s3, a3
+      74: 00000097     	auipc	ra, 0x0
+			00000074:  R_RISCV_CALL_PLT	memmove
+      78: 000080e7     	jalr	ra <custom_pair_insert+0x74>
+      7c: 00000513     	li	a0, 0x0
+      80: 01242023     	sw	s2, 0x0(s0)
+      84: 01342223     	sw	s3, 0x4(s0)
+      88: 0044a583     	lw	a1, 0x4(s1)
+      8c: 00158593     	addi	a1, a1, 0x1
+      90: 00b4a223     	sw	a1, 0x4(s1)
+      94: 01c12083     	lw	ra, 0x1c(sp)
+      98: 01812403     	lw	s0, 0x18(sp)
+      9c: 01412483     	lw	s1, 0x14(sp)
+      a0: 01012903     	lw	s2, 0x10(sp)
+      a4: 00c12983     	lw	s3, 0xc(sp)
+      a8: 02010113     	addi	sp, sp, 0x20
+      ac: 00008067     	ret
+
+Disassembly of section .text.custom_pair_insert_loop:
+
+00000000 <custom_pair_insert_loop>:
+       0: 00452703     	lw	a4, 0x4(a0)
+       4: 00852783     	lw	a5, 0x8(a0)
+       8: 00e7f663     	bgeu	a5, a4, 0x14 <custom_pair_insert_loop+0x14>
+       c: 00300513     	li	a0, 0x3
+      10: 00008067     	ret
+      14: 00b77663     	bgeu	a4, a1, 0x20 <custom_pair_insert_loop+0x20>
+      18: 00200513     	li	a0, 0x2
+      1c: 00008067     	ret
+      20: 00f71663     	bne	a4, a5, 0x2c <custom_pair_insert_loop+0x2c>
+      24: 00100513     	li	a0, 0x1
+      28: 00008067     	ret
+      2c: 02e5f663     	bgeu	a1, a4, 0x58 <custom_pair_insert_loop+0x58>
+      30: 00371793     	slli	a5, a4, 0x3
+      34: 00052803     	lw	a6, 0x0(a0)
+      38: 00f80833     	add	a6, a6, a5
+      3c: ff882883     	lw	a7, -0x8(a6)
+      40: ffc82283     	lw	t0, -0x4(a6)
+      44: fff70713     	addi	a4, a4, -0x1
+      48: 01182023     	sw	a7, 0x0(a6)
+      4c: 00582223     	sw	t0, 0x4(a6)
+      50: ff878793     	addi	a5, a5, -0x8
+      54: fee5e0e3     	bltu	a1, a4, 0x34 <custom_pair_insert_loop+0x34>
+      58: 00052783     	lw	a5, 0x0(a0)
+      5c: 00359593     	slli	a1, a1, 0x3
+      60: 00b785b3     	add	a1, a5, a1
+      64: 00c5a023     	sw	a2, 0x0(a1)
+      68: 00d5a223     	sw	a3, 0x4(a1)
+      6c: 00452583     	lw	a1, 0x4(a0)
+      70: 00158593     	addi	a1, a1, 0x1
+      74: 00b52223     	sw	a1, 0x4(a0)
+      78: 00000513     	li	a0, 0x0
+      7c: 00008067     	ret
+
+Disassembly of section .text.custom_pair_push:
+
+00000000 <custom_pair_push>:
+       0: 00452683     	lw	a3, 0x4(a0)
+       4: 00852703     	lw	a4, 0x8(a0)
+       8: 00d77663     	bgeu	a4, a3, 0x14 <custom_pair_push+0x14>
+       c: 00300513     	li	a0, 0x3
+      10: 00008067     	ret
+      14: 00e69663     	bne	a3, a4, 0x20 <custom_pair_push+0x20>
+      18: 00100513     	li	a0, 0x1
+      1c: 00008067     	ret
+      20: 00050713     	mv	a4, a0
+      24: 00000513     	li	a0, 0x0
+      28: 00072783     	lw	a5, 0x0(a4)
+      2c: 00369693     	slli	a3, a3, 0x3
+      30: 00d786b3     	add	a3, a5, a3
+      34: 00b6a023     	sw	a1, 0x0(a3)
+      38: 00c6a223     	sw	a2, 0x4(a3)
+      3c: 00472583     	lw	a1, 0x4(a4)
+      40: 00158593     	addi	a1, a1, 0x1
+      44: 00b72223     	sw	a1, 0x4(a4)
+      48: 00008067     	ret
+
+Disassembly of section .text.custom_u32_insert:
+
+00000000 <custom_u32_insert>:
+       0: 00452683     	lw	a3, 0x4(a0)
+       4: 00852703     	lw	a4, 0x8(a0)
+       8: 00d77663     	bgeu	a4, a3, 0x14 <custom_u32_insert+0x14>
+       c: 00300513     	li	a0, 0x3
+      10: 00008067     	ret
+      14: 00b6f663     	bgeu	a3, a1, 0x20 <custom_u32_insert+0x20>
+      18: 00200513     	li	a0, 0x2
+      1c: 00008067     	ret
+      20: 00e69663     	bne	a3, a4, 0x2c <custom_u32_insert+0x2c>
+      24: 00100513     	li	a0, 0x1
+      28: 00008067     	ret
+      2c: ff010113     	addi	sp, sp, -0x10
+      30: 00112623     	sw	ra, 0xc(sp)
+      34: 00812423     	sw	s0, 0x8(sp)
+      38: 00912223     	sw	s1, 0x4(sp)
+      3c: 01212023     	sw	s2, 0x0(sp)
+      40: 00052403     	lw	s0, 0x0(a0)
+      44: 00259713     	slli	a4, a1, 0x2
+      48: 40b686b3     	sub	a3, a3, a1
+      4c: 00e40433     	add	s0, s0, a4
+      50: 00440593     	addi	a1, s0, 0x4
+      54: 00269693     	slli	a3, a3, 0x2
+      58: 00050493     	mv	s1, a0
+      5c: 00058513     	mv	a0, a1
+      60: 00040593     	mv	a1, s0
+      64: 00060913     	mv	s2, a2
+      68: 00068613     	mv	a2, a3
+      6c: 00000097     	auipc	ra, 0x0
+			0000006c:  R_RISCV_CALL_PLT	memmove
+      70: 000080e7     	jalr	ra <custom_u32_insert+0x6c>
+      74: 00000513     	li	a0, 0x0
+      78: 01242023     	sw	s2, 0x0(s0)
+      7c: 0044a583     	lw	a1, 0x4(s1)
+      80: 00158593     	addi	a1, a1, 0x1
+      84: 00b4a223     	sw	a1, 0x4(s1)
+      88: 00c12083     	lw	ra, 0xc(sp)
+      8c: 00812403     	lw	s0, 0x8(sp)
+      90: 00412483     	lw	s1, 0x4(sp)
+      94: 00012903     	lw	s2, 0x0(sp)
+      98: 01010113     	addi	sp, sp, 0x10
+      9c: 00008067     	ret
+
+Disassembly of section .text.custom_u32_insert_loop:
+
+00000000 <custom_u32_insert_loop>:
+       0: 00452683     	lw	a3, 0x4(a0)
+       4: 00852703     	lw	a4, 0x8(a0)
+       8: 00d77663     	bgeu	a4, a3, 0x14 <custom_u32_insert_loop+0x14>
+       c: 00300513     	li	a0, 0x3
+      10: 00008067     	ret
+      14: 00b6f663     	bgeu	a3, a1, 0x20 <custom_u32_insert_loop+0x20>
+      18: 00200513     	li	a0, 0x2
+      1c: 00008067     	ret
+      20: 00e69663     	bne	a3, a4, 0x2c <custom_u32_insert_loop+0x2c>
+      24: 00100513     	li	a0, 0x1
+      28: 00008067     	ret
+      2c: 02d5f263     	bgeu	a1, a3, 0x50 <custom_u32_insert_loop+0x50>
+      30: 00269713     	slli	a4, a3, 0x2
+      34: 00052783     	lw	a5, 0x0(a0)
+      38: 00e787b3     	add	a5, a5, a4
+      3c: ffc7a803     	lw	a6, -0x4(a5)
+      40: fff68693     	addi	a3, a3, -0x1
+      44: 0107a023     	sw	a6, 0x0(a5)
+      48: ffc70713     	addi	a4, a4, -0x4
+      4c: fed5e4e3     	bltu	a1, a3, 0x34 <custom_u32_insert_loop+0x34>
+      50: 00052703     	lw	a4, 0x0(a0)
+      54: 00259593     	slli	a1, a1, 0x2
+      58: 00b705b3     	add	a1, a4, a1
+      5c: 00c5a023     	sw	a2, 0x0(a1)
+      60: 00452583     	lw	a1, 0x4(a0)
+      64: 00158593     	addi	a1, a1, 0x1
+      68: 00b52223     	sw	a1, 0x4(a0)
+      6c: 00000513     	li	a0, 0x0
+      70: 00008067     	ret
+
+Disassembly of section .text.custom_u32_push:
+
+00000000 <custom_u32_push>:
+       0: 00452603     	lw	a2, 0x4(a0)
+       4: 00852683     	lw	a3, 0x8(a0)
+       8: 00c6f663     	bgeu	a3, a2, 0x14 <custom_u32_push+0x14>
+       c: 00300513     	li	a0, 0x3
+      10: 00008067     	ret
+      14: 00d61663     	bne	a2, a3, 0x20 <custom_u32_push+0x20>
+      18: 00100513     	li	a0, 0x1
+      1c: 00008067     	ret
+      20: 00050693     	mv	a3, a0
+      24: 00000513     	li	a0, 0x0
+      28: 0006a703     	lw	a4, 0x0(a3)
+      2c: 00261613     	slli	a2, a2, 0x2
+      30: 00c70633     	add	a2, a4, a2
+      34: 00b62023     	sw	a1, 0x0(a2)
+      38: 0046a583     	lw	a1, 0x4(a3)
+      3c: 00158593     	addi	a1, a1, 0x1
+      40: 00b6a223     	sw	a1, 0x4(a3)
+      44: 00008067     	ret
+
+Disassembly of section .text.heapless_pair_align:
+
+00000000 <heapless_u32_align>:
+       0: 00400513     	li	a0, 0x4
+       4: 00008067     	ret
+
+Disassembly of section .text.heapless_pair_init:
+
+00000000 <heapless_u32_init>:
+       0: 00052023     	sw	zero, 0x0(a0)
+       4: 00008067     	ret
+
+Disassembly of section .text.heapless_pair_insert:
+
+00000000 <heapless_pair_insert>:
+       0: fe010113     	addi	sp, sp, -0x20
+       4: 00112e23     	sw	ra, 0x1c(sp)
+       8: 00812c23     	sw	s0, 0x18(sp)
+       c: 00912a23     	sw	s1, 0x14(sp)
+      10: 01212823     	sw	s2, 0x10(sp)
+      14: 01312623     	sw	s3, 0xc(sp)
+      18: 01412423     	sw	s4, 0x8(sp)
+      1c: 00052483     	lw	s1, 0x0(a0)
+      20: 00b4f663     	bgeu	s1, a1, 0x2c <heapless_pair_insert+0x2c>
+      24: 00200513     	li	a0, 0x2
+      28: 0600006f     	j	0x88 <heapless_pair_insert+0x88>
+      2c: 01000713     	li	a4, 0x10
+      30: 00e49663     	bne	s1, a4, 0x3c <heapless_pair_insert+0x3c>
+      34: 00100513     	li	a0, 0x1
+      38: 0500006f     	j	0x88 <heapless_pair_insert+0x88>
+      3c: 00450413     	addi	s0, a0, 0x4
+      40: 00359713     	slli	a4, a1, 0x3
+      44: 00e40433     	add	s0, s0, a4
+      48: 40b48733     	sub	a4, s1, a1
+      4c: 00840593     	addi	a1, s0, 0x8
+      50: 00371713     	slli	a4, a4, 0x3
+      54: 00050913     	mv	s2, a0
+      58: 00058513     	mv	a0, a1
+      5c: 00040593     	mv	a1, s0
+      60: 00060993     	mv	s3, a2
+      64: 00070613     	mv	a2, a4
+      68: 00068a13     	mv	s4, a3
+      6c: 00000097     	auipc	ra, 0x0
+			0000006c:  R_RISCV_CALL_PLT	memmove
+      70: 000080e7     	jalr	ra <heapless_pair_insert+0x6c>
+      74: 00000513     	li	a0, 0x0
+      78: 00148493     	addi	s1, s1, 0x1
+      7c: 00992023     	sw	s1, 0x0(s2)
+      80: 01342023     	sw	s3, 0x0(s0)
+      84: 01442223     	sw	s4, 0x4(s0)
+      88: 01c12083     	lw	ra, 0x1c(sp)
+      8c: 01812403     	lw	s0, 0x18(sp)
+      90: 01412483     	lw	s1, 0x14(sp)
+      94: 01012903     	lw	s2, 0x10(sp)
+      98: 00c12983     	lw	s3, 0xc(sp)
+      9c: 00812a03     	lw	s4, 0x8(sp)
+      a0: 02010113     	addi	sp, sp, 0x20
+      a4: 00008067     	ret
+
+Disassembly of section .text.heapless_pair_push:
+
+00000000 <heapless_pair_push>:
+       0: 00050693     	mv	a3, a0
+       4: 00052703     	lw	a4, 0x0(a0)
+       8: 00f00513     	li	a0, 0xf
+       c: 02e56263     	bltu	a0, a4, 0x30 <heapless_pair_push+0x30>
+      10: 00000513     	li	a0, 0x0
+      14: 00371793     	slli	a5, a4, 0x3
+      18: 00170713     	addi	a4, a4, 0x1
+      1c: 00f687b3     	add	a5, a3, a5
+      20: 00e6a023     	sw	a4, 0x0(a3)
+      24: 00b7a223     	sw	a1, 0x4(a5)
+      28: 00c7a423     	sw	a2, 0x8(a5)
+      2c: 00008067     	ret
+      30: 00100513     	li	a0, 0x1
+      34: 00008067     	ret
+
+Disassembly of section .text.heapless_pair_size:
+
+00000000 <heapless_pair_size>:
+       0: 08400513     	li	a0, 0x84
+       4: 00008067     	ret
+
+Disassembly of section .text.heapless_u32_insert:
+
+00000000 <heapless_u32_insert>:
+       0: fe010113     	addi	sp, sp, -0x20
+       4: 00112e23     	sw	ra, 0x1c(sp)
+       8: 00812c23     	sw	s0, 0x18(sp)
+       c: 00912a23     	sw	s1, 0x14(sp)
+      10: 01212823     	sw	s2, 0x10(sp)
+      14: 01312623     	sw	s3, 0xc(sp)
+      18: 00052483     	lw	s1, 0x0(a0)
+      1c: 00b4f663     	bgeu	s1, a1, 0x28 <heapless_u32_insert+0x28>
+      20: 00200513     	li	a0, 0x2
+      24: 0580006f     	j	0x7c <heapless_u32_insert+0x7c>
+      28: 01000693     	li	a3, 0x10
+      2c: 00d49663     	bne	s1, a3, 0x38 <heapless_u32_insert+0x38>
+      30: 00100513     	li	a0, 0x1
+      34: 0480006f     	j	0x7c <heapless_u32_insert+0x7c>
+      38: 00450413     	addi	s0, a0, 0x4
+      3c: 00259693     	slli	a3, a1, 0x2
+      40: 00d40433     	add	s0, s0, a3
+      44: 40b486b3     	sub	a3, s1, a1
+      48: 00440593     	addi	a1, s0, 0x4
+      4c: 00269693     	slli	a3, a3, 0x2
+      50: 00050913     	mv	s2, a0
+      54: 00058513     	mv	a0, a1
+      58: 00040593     	mv	a1, s0
+      5c: 00060993     	mv	s3, a2
+      60: 00068613     	mv	a2, a3
+      64: 00000097     	auipc	ra, 0x0
+			00000064:  R_RISCV_CALL_PLT	memmove
+      68: 000080e7     	jalr	ra <heapless_u32_insert+0x64>
+      6c: 00000513     	li	a0, 0x0
+      70: 00148493     	addi	s1, s1, 0x1
+      74: 00992023     	sw	s1, 0x0(s2)
+      78: 01342023     	sw	s3, 0x0(s0)
+      7c: 01c12083     	lw	ra, 0x1c(sp)
+      80: 01812403     	lw	s0, 0x18(sp)
+      84: 01412483     	lw	s1, 0x14(sp)
+      88: 01012903     	lw	s2, 0x10(sp)
+      8c: 00c12983     	lw	s3, 0xc(sp)
+      90: 02010113     	addi	sp, sp, 0x20
+      94: 00008067     	ret
+
+Disassembly of section .text.heapless_u32_push:
+
+00000000 <heapless_u32_push>:
+       0: 00050613     	mv	a2, a0
+       4: 00052683     	lw	a3, 0x0(a0)
+       8: 00f00513     	li	a0, 0xf
+       c: 02d56063     	bltu	a0, a3, 0x2c <heapless_u32_push+0x2c>
+      10: 00000513     	li	a0, 0x0
+      14: 00269713     	slli	a4, a3, 0x2
+      18: 00e60733     	add	a4, a2, a4
+      1c: 00168693     	addi	a3, a3, 0x1
+      20: 00d62023     	sw	a3, 0x0(a2)
+      24: 00b72223     	sw	a1, 0x4(a4)
+      28: 00008067     	ret
+      2c: 00100513     	li	a0, 0x1
+      30: 00008067     	ret
+
+Disassembly of section .text.heapless_u32_size:
+
+00000000 <heapless_u32_size>:
+       0: 04400513     	li	a0, 0x44
+       4: 00008067     	ret
+
+Disassembly of section .text.heapless_view_u32_insert_cap16:
+
+00000000 <heapless_view_u32_insert_cap16>:
+       0: fe010113     	addi	sp, sp, -0x20
+       4: 00112e23     	sw	ra, 0x1c(sp)
+       8: 00812c23     	sw	s0, 0x18(sp)
+       c: 00912a23     	sw	s1, 0x14(sp)
+      10: 01212823     	sw	s2, 0x10(sp)
+      14: 01312623     	sw	s3, 0xc(sp)
+      18: 00052483     	lw	s1, 0x0(a0)
+      1c: 00b4f663     	bgeu	s1, a1, 0x28 <heapless_view_u32_insert_cap16+0x28>
+      20: 00200513     	li	a0, 0x2
+      24: 0580006f     	j	0x7c <heapless_view_u32_insert_cap16+0x7c>
+      28: 01000693     	li	a3, 0x10
+      2c: 00d49663     	bne	s1, a3, 0x38 <heapless_view_u32_insert_cap16+0x38>
+      30: 00100513     	li	a0, 0x1
+      34: 0480006f     	j	0x7c <heapless_view_u32_insert_cap16+0x7c>
+      38: 00450413     	addi	s0, a0, 0x4
+      3c: 00259693     	slli	a3, a1, 0x2
+      40: 00d40433     	add	s0, s0, a3
+      44: 40b486b3     	sub	a3, s1, a1
+      48: 00440593     	addi	a1, s0, 0x4
+      4c: 00269693     	slli	a3, a3, 0x2
+      50: 00050913     	mv	s2, a0
+      54: 00058513     	mv	a0, a1
+      58: 00040593     	mv	a1, s0
+      5c: 00060993     	mv	s3, a2
+      60: 00068613     	mv	a2, a3
+      64: 00000097     	auipc	ra, 0x0
+			00000064:  R_RISCV_CALL_PLT	memmove
+      68: 000080e7     	jalr	ra <heapless_view_u32_insert_cap16+0x64>
+      6c: 00000513     	li	a0, 0x0
+      70: 00148493     	addi	s1, s1, 0x1
+      74: 00992023     	sw	s1, 0x0(s2)
+      78: 01342023     	sw	s3, 0x0(s0)
+      7c: 01c12083     	lw	ra, 0x1c(sp)
+      80: 01812403     	lw	s0, 0x18(sp)
+      84: 01412483     	lw	s1, 0x14(sp)
+      88: 01012903     	lw	s2, 0x10(sp)
+      8c: 00c12983     	lw	s3, 0xc(sp)
+      90: 02010113     	addi	sp, sp, 0x20
+      94: 00008067     	ret
+
+Disassembly of section .text.heapless_view_u32_insert_rust_abi:
+
+00000000 <heapless_view_u32_insert_rust_abi>:
+       0: fe010113     	addi	sp, sp, -0x20
+       4: 00112e23     	sw	ra, 0x1c(sp)
+       8: 00812c23     	sw	s0, 0x18(sp)
+       c: 00912a23     	sw	s1, 0x14(sp)
+      10: 01212823     	sw	s2, 0x10(sp)
+      14: 01312623     	sw	s3, 0xc(sp)
+      18: 00052483     	lw	s1, 0x0(a0)
+      1c: 00c4f663     	bgeu	s1, a2, 0x28 <heapless_view_u32_insert_rust_abi+0x28>
+      20: 00200513     	li	a0, 0x2
+      24: 0500006f     	j	0x74 <heapless_view_u32_insert_rust_abi+0x74>
+      28: 00b49663     	bne	s1, a1, 0x34 <heapless_view_u32_insert_rust_abi+0x34>
+      2c: 00100513     	li	a0, 0x1
+      30: 0440006f     	j	0x74 <heapless_view_u32_insert_rust_abi+0x74>
+      34: 00450413     	addi	s0, a0, 0x4
+      38: 00261593     	slli	a1, a2, 0x2
+      3c: 00b40433     	add	s0, s0, a1
+      40: 40c48633     	sub	a2, s1, a2
+      44: 00440593     	addi	a1, s0, 0x4
+      48: 00261613     	slli	a2, a2, 0x2
+      4c: 00050913     	mv	s2, a0
+      50: 00058513     	mv	a0, a1
+      54: 00040593     	mv	a1, s0
+      58: 00068993     	mv	s3, a3
+      5c: 00000097     	auipc	ra, 0x0
+			0000005c:  R_RISCV_CALL_PLT	memmove
+      60: 000080e7     	jalr	ra <heapless_view_u32_insert_rust_abi+0x5c>
+      64: 00000513     	li	a0, 0x0
+      68: 00148493     	addi	s1, s1, 0x1
+      6c: 00992023     	sw	s1, 0x0(s2)
+      70: 01342023     	sw	s3, 0x0(s0)
+      74: 01c12083     	lw	ra, 0x1c(sp)
+      78: 01812403     	lw	s0, 0x18(sp)
+      7c: 01412483     	lw	s1, 0x14(sp)
+      80: 01012903     	lw	s2, 0x10(sp)
+      84: 00c12983     	lw	s3, 0xc(sp)
+      88: 02010113     	addi	sp, sp, 0x20
+      8c: 00008067     	ret

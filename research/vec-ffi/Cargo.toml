@@ -1,0 +1,38 @@
+[package]
+name = "vec-ffi-research"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+heapless = { version = "=0.9.3", default-features = false }
+
+[lib]
+crate-type = ["rlib"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+codegen-units = 1
+debug = false
+lto = false
+panic = "abort"
+
+[profile.release-1]
+inherits = "release"
+opt-level = 1
+
+[profile.release-3]
+inherits = "release"
+opt-level = 3
+
+[profile.release-s]
+inherits = "release"
+opt-level = "s"
+
+[profile.release-z]
+inherits = "release"
+opt-level = "z"
