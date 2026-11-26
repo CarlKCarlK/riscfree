@@ -97,10 +97,14 @@ The files are:
   instruction, loop invariants, and the final theorem.
 - `proof/RawVec.lean` and `proof/RawVec/Instructions.lean`: the bounded
   vector specification, execution proof, and 30-instruction table.
+- `proof/RawVec/Nonvacuity.lean`: concrete machines that satisfy every
+  premise of the RawVec theorem, one per execution path.
 - `proof/Riscfree/RV32/`: reusable RV32 infrastructure. It provides register
   snapshots synchronized with the Sail state, a step lemma per opcode built on
   Pico FV's equivalence theorems, the platform premises, the pre-simplified
-  decoder, and the `decode_word` and `decode_table` tactics.
+  decoder, and the `decode_word` and `decode_table` tactics. `Fetch.lean`
+  derives Sail's instruction fetch from machine mode, PMA, and the code bytes.
+  `Model.lean` provides building blocks for concrete machines.
 - `proof/Riscfree/NormalForm.lean` and `proof/Riscfree/StateRun.lean`:
   infrastructure independent of RISC-V. The `normal_form` command simplifies a
   definition once and adds the result and its equation theorem through the
@@ -151,6 +155,11 @@ permission for the changed slots and length word. The header and the accessed
 buffer addresses must fit in the RV32 address space, the live buffer and header
 must be disjoint, and every write must be disjoint from the code. No permission
 is required for spare slots after the new length.
+
+`proof/RawVec/Nonvacuity.lean` proves that these premises can all hold. It
+builds a concrete machine for each of the five execution paths and applies the
+theorem to it. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) describes
+the model.
 
 The ESP32-C3 demo uses a call shim to give the routine a four-byte-aligned
 return address even when the surrounding firmware uses compressed

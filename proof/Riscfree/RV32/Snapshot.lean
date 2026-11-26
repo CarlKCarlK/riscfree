@@ -152,6 +152,37 @@ theorem writeTrackedUpdate (value : Fin 32 → BitVec 32) {index : Fin 32} (writ
       rw [updated]
       simp [Ne.symm same]
 
+-- Writing a register outside the tracked list commutes with writing the tracked ones.
+theorem writeTrackedWrite (value : Fin 32 → BitVec 32) (key : Register) (written : RegisterType key)
+    (outside : ∀ index ∈ registers, reg_of_fin index ≠ key) :
+    writeTracked registers value (write_reg_state frame key written) =
+      write_reg_state (writeTracked registers value frame) key written := by
+  induction registers with
+  | nil => rfl
+  | cons head rest previous =>
+    simp only [List.mem_cons, forall_eq_or_imp] at outside
+    simp only [writeTracked, writeX, previous outside.2]
+    exact writeCommute _ _ _ _ _ (Ne.symm outside.1)
+
+-- Writing the tracked registers twice keeps only the second values.
+theorem writeTrackedTwice (first second : Fin 32 → BitVec 32)
+    (distinct : registers.Nodup) (nonzero : (0 : Fin 32) ∉ registers) :
+    writeTracked registers second (writeTracked registers first frame) =
+      writeTracked registers second frame := by
+  induction registers with
+  | nil => rfl
+  | cons head rest previous =>
+    simp only [List.nodup_cons] at distinct
+    simp only [List.mem_cons, not_or] at nonzero
+    have headNonzero : head ≠ 0 := Ne.symm nonzero.1
+    simp only [writeTracked]
+    unfold writeX
+    rw [writeTrackedWrite _ _ _ (fun index member same => distinct.1 (by
+        have indexNonzero : index ≠ 0 := fun zero => nonzero.2 (zero ▸ member)
+        by_contra different
+        exact regOfFinInjective indexNonzero headNonzero (fun equal => different (equal ▸ member)) same)),
+      writeOverwrite, previous distinct.2 nonzero.2]
+
 end Tracked
 
 
@@ -219,6 +250,16 @@ theorem syncSetPC (state next : S)
   simp only [sync]
   rw [writeCommute _ .PC .nextPC _ _ (by decide), writeOverwrite, writeOverwrite,
     writeTrackedCongr (fun other inside => (agree other inside).symm)]
+
+-- Synchronizing a synchronized state again keeps only the second snapshot. In
+-- particular `sync base frame state` is a fixed point of `sync base · state`.
+theorem syncSync (first second : S) :
+    sync base (sync base frame first) second = sync base frame second := by
+  simp only [sync]
+  rw [writeTrackedWrite _ _ _ (fun index _ => regOfFinNePC index),
+    writeTrackedWrite _ _ _ (fun index _ => reg_of_fin_neq_nextPC),
+    writeTrackedTwice _ _ RegisterView.distinct RegisterView.nonzero,
+    writeCommute _ .PC .nextPC _ _ (by decide), writeOverwrite, writeOverwrite]
 
 end Sync
 

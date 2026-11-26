@@ -13,7 +13,7 @@ rev = "a7f9a0976e245aeef89c3f02c51ae85023207b53"
 [[lean_lib]]
 name = "Riscfree"
 srcDir = "proof"
-roots = ["Popcount", "PopcountSpec", "PopcountSwar", "RawVec", "Riscfree.Elf", "Riscfree.NormalForm",
+roots = ["Popcount", "PopcountSpec", "PopcountSwar", "RawVec", "RawVec.Nonvacuity", "Riscfree.Elf", "Riscfree.NormalForm",
   "Riscfree.RV32", "Riscfree.StateRun"]
-globs = ["Popcount", "PopcountSpec", "PopcountSwar", "RawVec", "Riscfree.Elf", "Riscfree.NormalForm",
+globs = ["Popcount", "PopcountSpec", "PopcountSwar", "RawVec", "RawVec.Nonvacuity", "Riscfree.Elf", "Riscfree.NormalForm",
   "Riscfree.RV32.+", "Riscfree.StateRun"]

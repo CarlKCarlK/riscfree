@@ -16,3 +16,13 @@ they are more specific.
   using a library, tool, model, or another project's technique or design,
   credit it there with a link and a short note on what riscfree uses it for.
   Remove a credit only when the project stops using it.
+
+## Conditional theorems
+
+- Every conditional correctness theorem needs a machine-checked nonvacuity
+  result next to it. Bundle the theorem's premises, prove that the bundle
+  invokes the theorem, and exhibit concrete states that satisfy the bundle on
+  each execution path. Check the result with the kernel. See
+  `proof/RawVec/Nonvacuity.lean` and `docs/rawvec-assurance.md`.
+- When a theorem's statement changes, update its nonvacuity proof in the same
+  change.

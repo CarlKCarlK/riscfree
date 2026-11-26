@@ -1,5 +1,6 @@
 import Riscfree.RV32.Decode
 import Riscfree.RV32.Store
+import Riscfree.RV32.Fetch
 
 namespace Riscfree.RawVec
 
@@ -98,6 +99,19 @@ structure Environment (base returnAddress : Word) (original : Machine) : Prop wh
   codeFits : base.toNat + 120 ≤ 2 ^ 32
   platform : ∀ memory, CodeAgrees base original.mem memory →
     Platform Snapshot instructions base { original with mem := memory } [] returnAddress (fun _ => 0)
+
+-- In machine mode, Sail's fetch reads the code bytes from executable memory,
+-- so the code mapping for every memory that keeps those bytes follows from the
+-- original machine. No RAM words are needed: the routine's data accesses
+-- carry their own `Readable` and `Writable` premises.
+theorem Environment.ofMachine {base returnAddress : Word} {original : Machine}
+    (mode : MachineMode original returnAddress) (image : CodeImage instructions base original) :
+    Environment base returnAddress original where
+  codeFits := image.fits
+  platform memory agrees :=
+    Platform.ofCodeImage (mode.withMemory memory)
+      (image.withMemory memory fun byte low high => agrees byte low high)
+      (fun _ inside => nomatch inside)
 
 section Instructions
 

@@ -67,6 +67,39 @@ setting.
 What the stubs *do* affect is the meaning of `step` on instructions this
 routine never runs. Those instructions are outside the theorem.
 
+## Nonvacuity
+
+A conditional theorem whose premises can never hold together proves nothing.
+[proof/RawVec/Nonvacuity.lean](../proof/RawVec/Nonvacuity.lean) shows the
+premises of `rawVecU32InsertSailCorrect` can all hold at once.
+
+- `Hypotheses` lists the theorem's premises in order. `Hypotheses.run`
+  feeds them to the theorem, so the bundle cannot omit one.
+- `modelHypotheses` builds a concrete machine and proves every premise for
+  any index, value, capacity, and element contents, provided the length is at
+  most 1000. The machine is in machine mode with `MPRV` clear, landing pads and
+  HTIF disabled, `misa` = RV32IM, and one readable, writable, executable PMA
+  region covering the address space. Memory holds the 30 linked instruction
+  words at `0x1000`, the header at `0x3000`, and the elements at `0x4000`.
+  The return address is `0x2000`.
+- Five theorems instantiate the model, one per execution path:
+  `appendSatisfiable` (14 instructions), `shiftSatisfiable` (inserting before
+  two elements, 30 instructions), `invalidLengthSatisfiable` (5),
+  `invalidIndexSatisfiable` (6), and `fullSatisfiable` (7). Each also proves the
+  path's condition, status, and instruction count by `decide`. The matching
+  `appendRuns`, ..., `fullRuns` apply the theorem to the model and conclude
+  that the concrete machine returns to `0x2000` with the expected status.
+
+The `Environment` premise quantifies over every memory that agrees on the
+code bytes. The model meets it through `Environment.ofMachine`. That lemma
+derives the instruction fetch from Sail's semantics (see
+`proof/Riscfree/RV32/Fetch.lean`), so the model never assumes a fetch result.
+The `entry` premise, `original = sync base original ...`, holds because
+synchronizing a synchronized state again changes nothing (`syncSync`).
+
+`lake build` checks these proofs, and `leanchecker` replays them through Lean's
+kernel (`just kernel-check`). They use no axioms beyond the theorem's own.
+
 ## Remaining trusted base
 
 The later sections of this note add to this list as the guarantee is
