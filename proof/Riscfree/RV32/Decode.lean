@@ -1,13 +1,23 @@
 import Riscfree.RV32.RegisterFrame
+import Riscfree.RV32.DecoderNormalForm
 
 /-!
 # Sail decoding of linked instruction words
 
 `decode_word [facts]` proves `encdec_backwards word state = .ok ast state`
 for one concrete 32-bit word. The facts describe the state the decoder reads,
-such as the privilege level and the landing-pad setting. The simp set is
-restricted to what the decoder needs: the opcode imports add rules that
-otherwise expand unrelated instruction families.
+such as the privilege level and the landing-pad setting. It tries, in order:
+
+1. The pre-simplified decoder: rewrite with `decodeMachineMode.eq`, using the
+   facts for its hypotheses, and let the kernel reduce `decodeMachineMode word
+   state` to the expected result. The kernel checks each word as an auxiliary
+   theorem. No per-instruction lemma is involved.
+2. `decode_word_simp [facts]`: a per-word `simp` over the Sail decoder with a
+   hand-picked rule set. It covers the instructions that the first method
+   cannot finish because they read state that the normal form leaves symbolic.
+   Today that is `mul`, whose decoding reads `misa`.
+
+`decode_table` applies `decode_word` to every entry of an instruction table.
 -/
 
 namespace Riscfree.RV32
@@ -19,11 +29,54 @@ def reg (index : BitVec 5) : regidx := .Regidx index
 
 end Riscfree.RV32
 
-syntax "decode_word" "[" term,* "]" : tactic
+namespace Riscfree.RV32
+
+open Lean Meta Elab Tactic LeanRV32D.Functions
+
+/-- Close `encdec_backwards word state = result` with `decodeMachineMode.eq` and a
+kernel reduction. Each hypothesis of `decodeMachineMode.eq` must be proved by one of
+`facts`. Returns `false`, with the goal and metavariable state unchanged, if the
+goal has another shape, a fact is missing, or the kernel cannot reduce the normal
+form to `result`. -/
+def decodeByNormalForm (facts : Array Expr) (goal : MVarId) : MetaM Bool :=
+  goal.withContext <| commitWhen do
+  let some (_, lhs, result) := (← instantiateMVars (← goal.getType)).eq? | return false
+  -- Other goals could make `isDefEq` below unfold the whole Sail decoder.
+  unless lhs.isAppOfArity ``encdec_backwards 2 || lhs.isAppOfArity ``ext_decode 2 do
+    return false
+  -- The kernel rejects metavariables, such as a `_` left in the expected instruction.
+  if result.hasMVar then
+    return false
+  let equation ← mkConstWithFreshMVarLevels ``decodeMachineMode.eq
+  let (arguments, _, statement) ← forallMetaTelescope (← inferType equation)
+  let some (_, decoded, _) := statement.eq? | return false
+  unless ← isDefEq decoded lhs do
+    return false
+  for argument in arguments do
+    if (← argument.mvarId!.isAssigned) then
+      continue
+    let argumentType ← instantiateMVars (← inferType argument)
+    let some fact ← facts.findM? fun fact => do isDefEq (← inferType fact) argumentType
+      | return false
+    argument.mvarId!.assign fact
+  let rewrite ← instantiateMVars (mkAppN equation arguments)
+  let some (_, _, normal) := (← inferType rewrite).eq? | return false
+  -- Ask the kernel first: a failed check inside `mkAuxTheorem` is reported only after
+  -- the tactic has finished, too late to fall back. The kernel checks the reduction
+  -- again when it adds the auxiliary theorem.
+  unless ← ofExceptKernelException (Kernel.isDefEq (← getEnv) (← getLCtx) normal result) do
+    return false
+  let reduction ← mkAuxTheorem (← mkEq normal result) (← mkEqRefl result)
+  goal.assign (← mkExpectedTypeHint (← mkEqTrans rewrite reduction) (← goal.getType))
+  return true
+
+end Riscfree.RV32
+
+syntax "decode_word_simp" "[" term,* "]" : tactic
 
 open LeanRV32D LeanRV32D.Functions RV32IM in
 macro_rules
-  | `(tactic| decode_word [$facts,*]) => do
+  | `(tactic| decode_word_simp [$facts,*]) => do
   let lemmas ← facts.getElems.mapM fun fact => `(Lean.Parser.Tactic.simpLemma| $fact:term)
   let facts : Array (Lean.TSyntax [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
     `Lean.Parser.Tactic.simpLemma]) := lemmas.map fun fact => ⟨fact.raw⟩
@@ -54,6 +107,28 @@ macro_rules
     encdec_mul_op_backwards, encdec_mul_op_backwards_matches, LeanRV32D.Functions.base_E_enabled,
     LeanRV32D.Functions.regidx_bit_width, $facts,*]))
 
+syntax "decode_word" "[" term,* "]" : tactic
+
+open Lean Elab Tactic in
+elab_rules : tactic
+  | `(tactic| decode_word [$facts,*]) => withMainContext do
+    let factProofs ← facts.getElems.mapM fun fact => elabTerm fact none
+    if ← Riscfree.RV32.decodeByNormalForm factProofs (← getMainGoal) then
+      replaceMainGoal []
+    else
+      evalTactic (← `(tactic| decode_word_simp [$facts,*]))
+
+/-- Like `decode_word`, but fails instead of falling back to `decode_word_simp`. -/
+syntax "decode_word_normal_form" "[" term,* "]" : tactic
+
+open Lean Elab Tactic in
+elab_rules : tactic
+  | `(tactic| decode_word_normal_form [$facts,*]) => withMainContext do
+    let factProofs ← facts.getElems.mapM fun fact => elabTerm fact none
+    unless ← Riscfree.RV32.decodeByNormalForm factProofs (← getMainGoal) do
+      throwError "decode_word_normal_form: the normal form does not decode this word from the facts"
+    replaceMainGoal []
+
 -- Prove `∀ entry ∈ table, ext_decode entry.1 state = .ok entry.2 state` word by word.
 -- The goal is split structurally: an `rcases` `rfl` pattern would be hygienic here.
 syntax "decode_table" ident "[" term,* "]" : tactic
@@ -64,3 +139,14 @@ macro_rules
     simp only [List.forall_mem_cons, List.not_mem_nil, false_implies, implies_true, and_true]
     repeat' apply And.intro
     all_goals (show LeanRV32D.Functions.encdec_backwards _ _ = _; decode_word [$facts,*])))
+
+/-- Like `decode_table`, but every word must decode from the normal form. -/
+syntax "decode_table_normal_form" ident "[" term,* "]" : tactic
+
+macro_rules
+  | `(tactic| decode_table_normal_form $table [$facts,*]) => `(tactic| (
+    unfold $table
+    simp only [List.forall_mem_cons, List.not_mem_nil, false_implies, implies_true, and_true]
+    repeat' apply And.intro
+    all_goals
+      (show LeanRV32D.Functions.encdec_backwards _ _ = _; decode_word_normal_form [$facts,*])))
