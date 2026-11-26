@@ -110,6 +110,12 @@ theorem syncSetWord {S : Type} [RegisterView S] (base : BitVec 32) (frame : Mach
   simp only [setWord, sync, unchanged, writeTrackedMemory]
   rfl
 
+theorem syncWithMem {S : Type} [RegisterView S] (base : BitVec 32) (frame : Machine)
+    (state : S) (mem : ByteMemory) :
+    { sync base frame state with mem } = sync base { frame with mem } state := by
+  simp only [sync, writeTrackedMemory]
+  rfl
+
 theorem Step.sw {S : Type} [RegisterView S] {base : BitVec 32} {frame : Machine} {state next : S}
     {word : BitVec 32} {pointer value : BitVec 32} {address source : regidx} {imm : BitVec 12}
     (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))

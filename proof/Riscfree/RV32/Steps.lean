@@ -4,6 +4,7 @@ import Riscfree.RV32.Snapshot
 import PicoFV.RV32IM.RVSail.Opcodes.add
 import PicoFV.RV32IM.RVSail.Opcodes.and
 import PicoFV.RV32IM.RVSail.Opcodes.andi
+import PicoFV.RV32IM.RVSail.Opcodes.auipc
 import PicoFV.RV32IM.RVSail.Opcodes.jalr
 import PicoFV.RV32IM.RVSail.Opcodes.lui
 import PicoFV.RV32IM.RVSail.Opcodes.mul
@@ -72,6 +73,21 @@ theorem jump {operation : instruction} {target : BitVec 32}
   rw [← pcNext] at effect
   exact (stepSetPC _ _ _ _ fetched decoded effect).trans
     (congrArg some (syncSetPC state next agree))
+
+-- An instruction that writes `dest` and sets the next PC to any target, as a
+-- linking jump does.
+theorem retireTo {operation : instruction} {dest : Fin 32} {written target : BitVec 32}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) = .ok operation (sync base frame state))
+    (effect : execute_instruction operation (sync base frame state) = .ok (.Retire_Success ())
+      (writeX (write_reg_state (sync base frame state) Register.nextPC (base + target)) dest written))
+    (member : dest ∈ tracked S) (pcNext : RegisterView.pc next = target)
+    (agree : ∀ other ∈ tracked S, RegisterView.value next other =
+      if other = dest then written else RegisterView.value state other) :
+    step (sync base frame state) = some (sync base frame next) := by
+  rw [← pcNext] at effect
+  exact (stepWrite _ _ _ dest _ _ fetched decoded effect).trans
+    (congrArg some (syncWrite state next written member agree))
 
 -- Prepend one step to a run.
 theorem runStep {first second : Machine} {count : Nat} {result : Option Machine}
@@ -351,6 +367,51 @@ theorem jalr {source : regidx} {imm : BitVec 12} {sourceValue target : BitVec 32
   rw [destination]
   simpa [OpcodeSpec.RV32.spec_JALR, operation_list_effect, operation_effect,
     writeReg_state_success, write_xreg, regidx_to_fin] using effect
+
+theorem auipc {dest : regidx} {imm : BitVec 20}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) =
+      .ok (.UTYPE (imm, dest, .AUIPC)) (sync base frame state))
+    (member : regidx_to_fin dest ∈ tracked S)
+    (writes : Writes state next (regidx_to_fin dest)
+      (base + RegisterView.pc state + (imm ++ 0#12))) :
+    step (sync base frame state) = some (sync base frame next) := by
+  have effect := OpcodeSpec.RV32.execute_AUIPC_equiv
+    ((OpcodeSpec.RV32.spec_AUIPC_hypotheses (rd := dest) (imm := imm)
+      (state := sync base frame state) (pc_val := base + RegisterView.pc state)).mpr
+        (syncReadPC state))
+  refine retire fetched decoded ?_ member writes
+  simpa [OpcodeSpec.RV32.spec_AUIPC, operation_list_effect, operation_effect,
+    writeReg_state_success, write_xreg, writeX, nonzeroIndex member] using effect
+
+-- A call through `source` that links the next PC into a tracked `dest`.
+-- Sail reads `source` before writing `dest`, so the two may be the same register.
+theorem jalrLink {source dest : regidx} {imm : BitVec 12} {sourceValue target : BitVec 32}
+    {misa : RegisterType Register.misa} {mseccfg : RegisterType Register.mseccfg}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) =
+      .ok (.JALR (imm, source, dest)) (sync base frame state))
+    (sourceRead : read_xreg (regidx_to_fin source) (sync base frame state) =
+      .ok sourceValue (sync base frame state))
+    (misaRead : Sail.readReg Register.misa (sync base frame state) = .ok misa (sync base frame state))
+    (privilege : Sail.readReg Register.cur_privilege (sync base frame state) =
+      .ok .Machine (sync base frame state))
+    (mseccfgRead : Sail.readReg Register.mseccfg (sync base frame state) =
+      .ok mseccfg (sync base frame state))
+    (halfword : BitVec.ofBool (sourceValue + imm.signExtend 32)[1] = 0#1)
+    (destination : base + target = 0xfffffffe#32 &&& (sourceValue + imm.signExtend 32))
+    (member : regidx_to_fin dest ∈ tracked S) (pcNext : RegisterView.pc next = target)
+    (agree : ∀ other ∈ tracked S, RegisterView.value next other =
+      if other = regidx_to_fin dest then base + RegisterView.pc state + 4#32
+      else RegisterView.value state other) :
+    step (sync base frame state) = some (sync base frame next) := by
+  have effect := OpcodeSpec.RV32.execute_JALR_equiv
+    ((OpcodeSpec.RV32.spec_JALR_hypotheses (rs1 := source) (rd := dest) (imm := imm)).mpr
+      ⟨syncReadPC state, sourceRead⟩) misaRead privilege mseccfgRead halfword
+  refine retireTo fetched decoded ?_ member pcNext agree
+  rw [destination]
+  simpa [OpcodeSpec.RV32.spec_JALR, operation_list_effect, operation_effect,
+    writeReg_state_success, write_xreg, writeX, nonzeroIndex member] using effect
 
 end Step
 

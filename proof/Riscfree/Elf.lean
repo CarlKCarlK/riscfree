@@ -22,7 +22,8 @@ def hex (part : String) : IO Nat := do
     value := value * 16 + nibble
   return value
 
-def verifyElf (path symbol : String) (words : List (BitVec 32)) : IO Unit := do
+-- Check the bytes and return the symbol's address.
+def verifyElfSymbol (path symbol : String) (words : List (BitVec 32)) : IO Nat := do
   let symbols ← IO.Process.run { cmd := "nm", args := #["-S", "--defined-only", path] }
   let sections ← IO.Process.run { cmd := "objdump", args := #["-h", "-j", ".text", path] }
   let symbolRows := (symbols.splitOn "\n").map columns
@@ -47,5 +48,9 @@ def verifyElf (path symbol : String) (words : List (BitVec 32)) : IO Unit := do
   unless size == expected.length && actual == expected do
     throw (IO.userError s!"The linked {symbol} bytes differ from the Lean proof")
   IO.println s!"{symbol}: verified all {size} linked bytes"
+  return address
+
+def verifyElf (path symbol : String) (words : List (BitVec 32)) : IO Unit :=
+  discard <| verifyElfSymbol path symbol words
 
 end Riscfree

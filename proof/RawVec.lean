@@ -553,10 +553,10 @@ private theorem a0Read (base : Word) (frame : Machine) (state : Snapshot) :
     (sync base frame state).regs.get? Register.x10 = some state.a0 :=
   readReg_succ.mp (syncRead state (index := 10) (by decide))
 
--- The pointwise output specifies the entire logical sequence. Bytes outside
--- the one length word and the written suffix, including spare slots after the
--- new length, retain their original values.
-theorem rawVecU32InsertSailCorrect (base returnAddress : Word) (original : Machine)
+-- The same run, ending in a synchronized state: the snapshot's PC, the
+-- status in `a0`, and a memory. A proof that continues past the return, such
+-- as the calling shim's, steps on from this form.
+theorem rawVecU32InsertSailRun (base returnAddress : Word) (original : Machine)
     (call : Call) (initial : Snapshot)
     (entry : original = sync base original { initial with pc := 0 })
     (headerArgument : initial.a0 = call.header)
@@ -565,24 +565,8 @@ theorem rawVecU32InsertSailCorrect (base returnAddress : Word) (original : Machi
     (environment : Environment base returnAddress original)
     (header : Header original call)
     (buffer : call.valid → Buffer base original call) :
-    ∃ final, run call.count original = some final ∧
-      final.regs.get? Register.PC = some returnAddress ∧
-      final.regs.get? Register.x10 = some call.status ∧
-      (¬ call.valid → final.mem = original.mem) ∧
-      (call.valid →
-        WordAt final.mem call.header.toNat call.data ∧
-        WordAt final.mem (call.header.toNat + 4) (BitVec.ofNat 32 (call.length.toNat + 1)) ∧
-        WordAt final.mem (call.header.toNat + 8) call.capacity ∧
-        (∀ index, index < call.length.toNat + 1 →
-          WordAt final.mem (call.slot index) (call.result index)) ∧
-        call.unchanged original.mem final.mem) ∧
-      (∀ register ∉ [Register.PC, .nextPC, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
-        final.regs.get? register = original.regs.get? register) := by
-  let start := { initial with pc := 0#32 }
-  have begins : original = synced base original original.mem start := entry
-  have checks := dispatch environment header start rfl headerArgument indexArgument
-  suffices ∃ endState memory,
-      run call.count original = some (synced base original memory endState) ∧
+    ∃ (endState : Snapshot) (memory : ByteMemory),
+      run call.count original = some (sync base { original with mem := memory } endState) ∧
       endState.pc = returnAddress - base ∧ endState.a0 = call.status ∧
       (¬ call.valid → memory = original.mem) ∧
       (call.valid →
@@ -591,22 +575,10 @@ theorem rawVecU32InsertSailCorrect (base returnAddress : Word) (original : Machi
         WordAt memory (call.header.toNat + 8) call.capacity ∧
         (∀ index, index < call.length.toNat + 1 →
           WordAt memory (call.slot index) (call.result index)) ∧
-        call.unchanged original.mem memory) by
-    obtain ⟨endState, memory, ran, pc, result, rejected, accepted⟩ := this
-    refine ⟨_, ran, pcReadReturned _ _ _ _ pc, (a0Read _ _ _).trans (congrArg some result),
-      ?_, ?_, ?_⟩
-    · simpa only [syncMem] using rejected
-    · simpa only [syncMem] using accepted
-    · intro register outside
-      simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at outside
-      obtain ⟨pc, next, a0, a1, a2, a3, a4, a5, a6, a7⟩ := outside
-      refine syncFrame endState register pc next ?_
-      intro index member
-      change index ∈ ([10, 11, 12, 13, 14, 15, 16, 17] : List (Fin 32)) at member
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-      exacts [Ne.symm a0, Ne.symm a1, Ne.symm a2, Ne.symm a3, Ne.symm a4, Ne.symm a5,
-        Ne.symm a6, Ne.symm a7]
+        call.unchanged original.mem memory) := by
+  let start := { initial with pc := 0#32 }
+  have begins : original = synced base original original.mem start := entry
+  have checks := dispatch environment header start rfl headerArgument indexArgument
   by_cases valid : call.valid
   · have goodLength : ¬ call.capacity.toNat < call.length.toNat := by have := valid.2; omega
     have goodIndex : ¬ call.length.toNat < call.index.toNat := by have := valid.1; omega
@@ -641,6 +613,79 @@ theorem rawVecU32InsertSailCorrect (base returnAddress : Word) (original : Machi
   · simp only [if_neg valid] at checks
     refine ⟨_, original.mem, (congrArg (run call.count) begins).trans checks, rfl, rfl,
       fun _ => rfl, fun accepted => (valid accepted).elim⟩
+
+-- The pointwise output specifies the entire logical sequence. Bytes outside
+-- the one length word and the written suffix, including spare slots after the
+-- new length, retain their original values.
+theorem rawVecU32InsertSailCorrect (base returnAddress : Word) (original : Machine)
+    (call : Call) (initial : Snapshot)
+    (entry : original = sync base original { initial with pc := 0 })
+    (headerArgument : initial.a0 = call.header)
+    (indexArgument : initial.a1 = call.index)
+    (valueArgument : initial.a2 = call.value)
+    (environment : Environment base returnAddress original)
+    (header : Header original call)
+    (buffer : call.valid → Buffer base original call) :
+    ∃ final, run call.count original = some final ∧
+      final.regs.get? Register.PC = some returnAddress ∧
+      final.regs.get? Register.x10 = some call.status ∧
+      (¬ call.valid → final.mem = original.mem) ∧
+      (call.valid →
+        WordAt final.mem call.header.toNat call.data ∧
+        WordAt final.mem (call.header.toNat + 4) (BitVec.ofNat 32 (call.length.toNat + 1)) ∧
+        WordAt final.mem (call.header.toNat + 8) call.capacity ∧
+        (∀ index, index < call.length.toNat + 1 →
+          WordAt final.mem (call.slot index) (call.result index)) ∧
+        call.unchanged original.mem final.mem) ∧
+      (∀ register ∉ [Register.PC, .nextPC, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
+        final.regs.get? register = original.regs.get? register) := by
+  obtain ⟨endState, memory, ran, pc, result, rejected, accepted⟩ :=
+    rawVecU32InsertSailRun base returnAddress original call initial entry headerArgument
+      indexArgument valueArgument environment header buffer
+  refine ⟨_, ran, pcReadReturned _ _ _ _ pc, (a0Read _ _ _).trans (congrArg some result),
+    ?_, ?_, ?_⟩
+  · simpa only [syncMem] using rejected
+  · simpa only [syncMem] using accepted
+  · intro register outside
+    simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at outside
+    obtain ⟨pc, next, a0, a1, a2, a3, a4, a5, a6, a7⟩ := outside
+    refine syncFrame endState register pc next ?_
+    intro index member
+    change index ∈ ([10, 11, 12, 13, 14, 15, 16, 17] : List (Fin 32)) at member
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    exacts [Ne.symm a0, Ne.symm a1, Ne.symm a2, Ne.symm a3, Ne.symm a4, Ne.symm a5,
+      Ne.symm a6, Ne.symm a7]
+
+-- The same guarantee with the code mapping derived rather than assumed. The
+-- hart runs in machine mode, and the routine's 120 bytes lie in memory that
+-- Sail's PMA check lets it fetch. Because every write the routine makes misses
+-- the code (`Buffer.awayFromCode`), the fetches stay valid for the whole run.
+theorem rawVecU32InsertSailCorrectInMachineMode (base returnAddress : Word) (original : Machine)
+    (call : Call) (initial : Snapshot)
+    (entry : original = sync base original { initial with pc := 0 })
+    (headerArgument : initial.a0 = call.header)
+    (indexArgument : initial.a1 = call.index)
+    (valueArgument : initial.a2 = call.value)
+    (mode : MachineMode original returnAddress)
+    (image : CodeImage instructions base original)
+    (header : Header original call)
+    (buffer : call.valid → Buffer base original call) :
+    ∃ final, run call.count original = some final ∧
+      final.regs.get? Register.PC = some returnAddress ∧
+      final.regs.get? Register.x10 = some call.status ∧
+      (¬ call.valid → final.mem = original.mem) ∧
+      (call.valid →
+        WordAt final.mem call.header.toNat call.data ∧
+        WordAt final.mem (call.header.toNat + 4) (BitVec.ofNat 32 (call.length.toNat + 1)) ∧
+        WordAt final.mem (call.header.toNat + 8) call.capacity ∧
+        (∀ index, index < call.length.toNat + 1 →
+          WordAt final.mem (call.slot index) (call.result index)) ∧
+        call.unchanged original.mem final.mem) ∧
+      (∀ register ∉ [Register.PC, .nextPC, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
+        final.regs.get? register = original.regs.get? register) :=
+  rawVecU32InsertSailCorrect base returnAddress original call initial entry headerArgument
+    indexArgument valueArgument (Environment.ofMachine mode image) header buffer
 
 #print axioms rawVecU32InsertSailCorrect
 

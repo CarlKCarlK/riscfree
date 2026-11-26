@@ -53,6 +53,29 @@ theorem fetchPhysicalHalfword (state : Machine)
       executable, fault, aligned, htifOff, nonMmio, Nat.mod_eq_of_lt bound,
       bytes0, bytes1]
 
+-- A word-aligned address has its two low bits clear.
+theorem alignedBits (address : BitVec 32) (aligned : address.toNat % 4 = 0) :
+    address[0] = false ∧ address[1] = false := by
+  constructor
+  · rw [BitVec.getElem_eq_testBit_toNat, Nat.testBit, Nat.shiftRight_zero]
+    simp; omega
+  · rw [BitVec.getElem_eq_testBit_toNat, Nat.testBit, Nat.one_and_eq_mod_two,
+      Nat.shiftRight_eq_div_pow]
+    simp; omega
+
+-- `jalr` clears bit 0 of its target, which changes nothing when the bit is clear.
+theorem maskEven (address : BitVec 32) (even : address[0] = false) :
+    0xfffffffe#32 &&& address = address := by
+  ext index bound
+  simp only [BitVec.getElem_and]
+  by_cases zero : index = 0
+  · subst zero
+    simp [even]
+  · have set : (0xfffffffe#32)[index] = true := by
+      simp only [BitVec.getElem_eq_testBit_toNat, BitVec.toNat_ofNat]
+      interval_cases index <;> first | omega | decide
+    simp [set]
+
 -- The PMA region that Sail matches for one halfword fetch is executable.
 def ExecutableHalfword (regions : List PMA_Region) (address : BitVec 32) : Prop :=
   ∃ region, matching_pma regions (.Physaddr (address.setWidth 34)) 2 = some region ∧
@@ -76,12 +99,7 @@ theorem instructionWordOfMemory (state : Machine) (pc word : BitVec 32)
   have highNat : (pc + 2#32).toNat = pc.toNat + 2 := by
     rw [BitVec.toNat_add]
     exact Nat.mod_eq_of_lt (by simp; omega)
-  have bit0 : pc[0] = false := by
-    rw [BitVec.getElem_eq_testBit_toNat, Nat.testBit, Nat.shiftRight_zero]
-    simp; omega
-  have bit1 : pc[1] = false := by
-    rw [BitVec.getElem_eq_testBit_toNat, Nat.testBit, Nat.one_and_eq_mod_two, Nat.shiftRight_eq_div_pow]
-    simp; omega
+  obtain ⟨bit0, bit1⟩ := alignedBits pc aligned
   refine ⟨bit0, bit1, _, _, machineFetchTranslation state pc status machine mstatusRead,
     machineFetchTranslation state (pc + 2#32) status machine mstatusRead, ?_, ?_⟩
   · have low := fetchPhysicalHalfword state pc lowRegion regions status _ _ machine mstatusRead
@@ -132,6 +150,23 @@ theorem withMemory (image : CodeImage instructions base frame) (memory : ByteMem
   rw [agrees _ (by omega) (by have := byte.isLt; omega)]
   exact image.words index bound byte
 
+-- The image depends on registers only through `pma_regions`.
+theorem transfer {other : Machine} (image : CodeImage instructions base frame)
+    (regions : other.regs.get? Register.pma_regions = frame.regs.get? Register.pma_regions)
+    (memory : other.mem = frame.mem) : CodeImage instructions base other := by
+  obtain ⟨found, regionsRead, executable⟩ := image.executable
+  have stored : frame.regs.get? Register.pma_regions = some found := readReg_succ.mp regionsRead
+  refine ⟨image.fits, image.aligned, ⟨found, readReg_succ.mpr (regions.trans stored), executable⟩,
+    fun index bound => ?_⟩
+  rw [memory]
+  exact image.words index bound
+
+theorem atSync {S : Type} [RegisterView S] (image : CodeImage instructions base frame)
+    (outerBase : BitVec 32) (state : S) :
+    CodeImage instructions base (sync outerBase frame state) :=
+  image.transfer (syncFrame state _ (by decide) (by decide) (fun _ _ => reg_of_fin_neq_pma_regions))
+    (syncMem state)
+
 theorem code {S : Type} [RegisterView S] (image : CodeImage instructions base frame)
     (machine : Sail.readReg Register.cur_privilege frame = .ok .Machine frame)
     (status : ∃ value, Sail.readReg Register.mstatus frame = .ok value frame)
@@ -163,15 +198,13 @@ end CodeImage
 
 /-! ## Platforms from machine-mode registers
 
-`MachineMode` holds the register facts of `Platform`. Together with a
-`CodeImage` and the RAM words, they give a `Platform` whose code mapping is
-derived from Sail's fetch instead of assumed.
+`MachineState` holds the register facts that instruction fetch and data
+accesses need. `MachineMode` adds the return address that `Platform` checks.
+Together with a `CodeImage` and the RAM words, they give a `Platform` whose
+code mapping is derived from Sail's fetch instead of assumed.
 -/
 
-structure MachineMode (frame : Machine) (returnAddress : BitVec 32) : Prop where
-  returnLow : returnAddress &&& 0xfffffffe = returnAddress
-  returnNext : (returnAddress)[1] = false
-  ra : Sail.readReg Register.x1 frame = .ok returnAddress frame
+structure MachineState (frame : Machine) : Prop where
   privilege : Sail.readReg Register.cur_privilege frame = .ok .Machine frame
   misa : ∃ value, Sail.readReg Register.misa frame = .ok value frame
   mseccfg : ∃ value, Sail.readReg Register.mseccfg frame = .ok value frame
@@ -180,30 +213,132 @@ structure MachineMode (frame : Machine) (returnAddress : BitVec 32) : Prop where
     value.extractLsb 17 17 = 0#1
   htif : Sail.readReg Register.htif_tohost_base frame = .ok none frame
 
+structure MachineMode (frame : Machine) (returnAddress : BitVec 32) : Prop
+    extends MachineState frame where
+  returnLow : returnAddress &&& 0xfffffffe = returnAddress
+  returnNext : (returnAddress)[1] = false
+  ra : Sail.readReg Register.x1 frame = .ok returnAddress frame
+
+-- Two machines with the same value for every register that `MachineState`
+-- reads.
+private theorem readTransfer {first second : Machine} {key : Register} {value : RegisterType key}
+    (same : second.regs.get? key = first.regs.get? key)
+    (read : Sail.readReg key first = .ok value first) :
+    Sail.readReg key second = .ok value second :=
+  readReg_succ.mpr (same.trans (readReg_succ.mp read))
+
+namespace MachineState
+
+variable {frame : Machine}
+
+theorem transfer {other : Machine} (machine : MachineState frame)
+    (same : ∀ key, (∀ index : Fin 32, reg_of_fin index ≠ key) → key ≠ Register.PC →
+      key ≠ Register.nextPC → other.regs.get? key = frame.regs.get? key) :
+    MachineState other := by
+  obtain ⟨misa, misaRead⟩ := machine.misa
+  obtain ⟨config, configRead⟩ := machine.mseccfg
+  obtain ⟨status, statusRead, mprv⟩ := machine.status
+  have disabled := machine.landingPad
+  simp [get_xLPE, configRead] at disabled
+  have configOther := readTransfer (same _ (by decide) (by decide) (by decide)) configRead
+  refine ⟨readTransfer (same _ (by decide) (by decide) (by decide)) machine.privilege,
+    ⟨misa, readTransfer (same _ (by decide) (by decide) (by decide)) misaRead⟩, ⟨config, configOther⟩, ?_,
+    ⟨status, readTransfer (same _ (by decide) (by decide) (by decide)) statusRead, mprv⟩,
+    readTransfer (same _ (by decide) (by decide) (by decide)) machine.htif⟩
+  simp [get_xLPE, configOther, disabled]
+
+-- The facts concern registers only, so they hold for every memory.
+theorem withMemory (machine : MachineState frame) (memory : ByteMemory) :
+    MachineState { frame with mem := memory } :=
+  machine.transfer fun _ _ _ _ => rfl
+
+-- Synchronizing a snapshot writes only general-purpose registers and the PC.
+theorem atSync {S : Type} [RegisterView S] (machine : MachineState frame) (base : BitVec 32)
+    (state : S) : MachineState (sync base frame state) :=
+  machine.transfer fun key notX notPC notNext => syncFrame state key notPC notNext
+    (fun index _ => notX index)
+
+end MachineState
+
 namespace MachineMode
 
 variable {frame : Machine} {returnAddress : BitVec 32}
 
-private theorem readOther {key : Register} {value : RegisterType key} (memory : ByteMemory)
-    (read : Sail.readReg key frame = .ok value frame) :
-    Sail.readReg key { frame with mem := memory } = .ok value { frame with mem := memory } := by
-  have stored : frame.regs.get? key = some value := readReg_succ.mp read
-  exact readReg_succ.mpr stored
-
--- The facts concern registers only, so they hold for every memory.
 theorem withMemory (mode : MachineMode frame returnAddress) (memory : ByteMemory) :
-    MachineMode { frame with mem := memory } returnAddress := by
-  obtain ⟨misa, misaRead⟩ := mode.misa
-  obtain ⟨config, configRead⟩ := mode.mseccfg
-  obtain ⟨status, statusRead, mprv⟩ := mode.status
-  have disabled := mode.landingPad
-  simp [get_xLPE, configRead] at disabled
-  refine ⟨mode.returnLow, mode.returnNext, readOther memory mode.ra, readOther memory mode.privilege,
-    ⟨misa, readOther memory misaRead⟩, ⟨config, readOther memory configRead⟩, ?_,
-    ⟨status, readOther memory statusRead, mprv⟩, readOther memory mode.htif⟩
-  simp [get_xLPE, readOther memory configRead, disabled]
+    MachineMode { frame with mem := memory } returnAddress :=
+  { mode.toMachineState.withMemory memory with
+    returnLow := mode.returnLow
+    returnNext := mode.returnNext
+    ra := readTransfer (first := frame) (second := { frame with mem := memory }) rfl mode.ra }
 
 end MachineMode
+
+/-! ## RAM words
+
+A naturally aligned word access in machine mode needs only the PMA region that
+matches it, the memory bytes for a load, and the `MachineState` facts.
+-/
+
+section Ram
+
+variable {S : Type} [RegisterView S] {base : BitVec 32} {frame : Machine}
+
+private theorem joinBytes (value : BitVec 32) :
+    BitVec.append (BitVec.append (BitVec.append (value.extractLsb' 24 8)
+      (value.extractLsb' 16 8)) (value.extractLsb' 8 8)) (value.extractLsb' 0 8) = value := by
+  have high := BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (x := value) (start₁ := 16)
+    (start₂ := 24) (len₁ := 8) (len₂ := 8) rfl
+  have middle := BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (x := value) (start₁ := 8)
+    (start₂ := 16) (len₁ := 8) (len₂ := 16) rfl
+  exact (congrArg (fun first => BitVec.append (BitVec.append first (value.extractLsb' 8 8))
+    (value.extractLsb' 0 8)) high).trans
+      ((congrArg (fun first => BitVec.append first (value.extractLsb' 0 8)) middle).trans
+        (BitVec.extractLsb'_append_extractLsb' (w := 24) (len := 8) (x := value)))
+
+theorem MachineState.loadWord (machine : MachineState frame) (state : S)
+    (next offset address value : BitVec 32) (regions : List PMA_Region) (region : PMA_Region)
+    (regionsRead : Sail.readReg Register.pma_regions frame = .ok regions frame)
+    (matched : matching_pma regions (.Physaddr (address.setWidth 34)) 4 = some region)
+    (readable : region.attributes.readable = true) (aligned : address.toNat % 4 = 0)
+    (word : WordAt frame.mem address.toNat value) :
+    let entered := write_reg_state (sync base frame state) Register.nextPC next
+    vmem_read_addr (.Virtaddr address) offset 4 (.Load .Data) false false false entered =
+      .ok (.Ok value) entered := by
+  dsimp only
+  have synced := machine.atSync base state
+  obtain ⟨status, statusRead, mprv⟩ := synced.status
+  have read := readAlignedRamWord (write_reg_state (sync base frame state) Register.nextPC next)
+    address offset region regions status
+    (value.extractLsb' 0 8) (value.extractLsb' 8 8) (value.extractLsb' 16 8)
+    (value.extractLsb' 24 8) (readReg_of_write_other_reg_state synced.privilege (by decide))
+    (readReg_of_write_other_reg_state statusRead (by decide)) mprv
+    (readReg_of_write_other_reg_state (Platform.systemRead state (by decide) (by decide) (by decide)
+      regionsRead) (by decide))
+    matched readable (readReg_of_write_other_reg_state synced.htif (by decide)) aligned
+    (by simpa using word 0) (by simpa using word 1) (by simpa using word 2) (by simpa using word 3)
+  exact read.trans (congrArg (fun word => EStateM.Result.ok (Sail.Ok word)
+    (write_reg_state (sync base frame state) Register.nextPC next)) (joinBytes value))
+
+theorem MachineState.storeWord (machine : MachineState frame) (state : S)
+    (next address value : BitVec 32) (regions : List PMA_Region) (region : PMA_Region)
+    (regionsRead : Sail.readReg Register.pma_regions frame = .ok regions frame)
+    (matched : matching_pma regions (.Physaddr (address.setWidth 34)) 4 = some region)
+    (writable : region.attributes.writable = true) (aligned : address.toNat % 4 = 0) :
+    let entered := write_reg_state (sync base frame state) Register.nextPC next
+    vmem_write_addr (.Virtaddr address) 4 value (.Store .Data) false false false entered =
+      .ok (.Ok true) (setWord entered address.toNat value) := by
+  dsimp only
+  have synced := machine.atSync base state
+  obtain ⟨status, statusRead, mprv⟩ := synced.status
+  exact writeAlignedRamWord (write_reg_state (sync base frame state) Register.nextPC next)
+    address value region regions status
+    (readReg_of_write_other_reg_state synced.privilege (by decide))
+    (readReg_of_write_other_reg_state statusRead (by decide)) mprv
+    (readReg_of_write_other_reg_state (Platform.systemRead state (by decide) (by decide) (by decide)
+      regionsRead) (by decide))
+    matched writable (readReg_of_write_other_reg_state synced.htif (by decide)) aligned
+
+end Ram
 
 theorem Platform.ofCodeImage {S : Type} [RegisterView S] {instructions : List (BitVec 32 × instruction)}
     {base : BitVec 32} {frame : Machine} {addresses : List (BitVec 32)} {returnAddress : BitVec 32}

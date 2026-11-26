@@ -183,6 +183,25 @@ theorem writeTrackedTwice (first second : Fin 32 → BitVec 32)
         exact regOfFinInjective indexNonzero headNonzero (fun equal => different (equal ▸ member)) same)),
       writeOverwrite, previous distinct.2 nonzero.2]
 
+-- Writing a sublist of the tracked registers over them merges the two value maps.
+theorem writeTrackedSubset (subset : List (Fin 32)) (first second : Fin 32 → BitVec 32)
+    (inside : ∀ index ∈ subset, index ∈ registers)
+    (distinct : registers.Nodup) (nonzero : (0 : Fin 32) ∉ registers) :
+    writeTracked subset second (writeTracked registers first frame) =
+      writeTracked registers (fun index => if index ∈ subset then second index else first index) frame := by
+  induction subset with
+  | nil => simp [writeTracked]
+  | cons head rest previous =>
+    simp only [List.mem_cons, forall_eq_or_imp] at inside
+    simp only [writeTracked]
+    rw [previous inside.2, writeTrackedUpdate _ _ distinct nonzero inside.1]
+    apply writeTrackedCongr
+    intro index _
+    by_cases same : index = head
+    · subst same
+      simp
+    · simp [same]
+
 end Tracked
 
 
@@ -260,6 +279,23 @@ theorem syncSync (first second : S) :
     writeTrackedWrite _ _ _ (fun index _ => reg_of_fin_neq_nextPC),
     writeTrackedTwice _ _ RegisterView.distinct RegisterView.nonzero,
     writeCommute _ .PC .nextPC _ _ (by decide), writeOverwrite, writeOverwrite]
+
+-- Synchronizing a second snapshot type whose registers the first one tracks
+-- gives a state of the first type. A proof that calls another routine uses
+-- this to switch between the caller's and the callee's snapshots.
+theorem syncInside {T : Type} [RegisterView T] (outerBase innerBase : BitVec 32)
+    (state merged : S) (inner : T) (inside : ∀ index ∈ tracked T, index ∈ tracked S)
+    (values : ∀ index ∈ tracked S, RegisterView.value merged index =
+      if index ∈ tracked T then RegisterView.value inner index else RegisterView.value state index)
+    (pc : outerBase + RegisterView.pc merged = innerBase + RegisterView.pc inner) :
+    sync innerBase (sync outerBase frame state) inner = sync outerBase frame merged := by
+  simp only [sync]
+  rw [writeTrackedWrite _ _ _ (fun index _ => regOfFinNePC index),
+    writeTrackedWrite _ _ _ (fun index _ => reg_of_fin_neq_nextPC),
+    writeTrackedSubset _ _ _ inside RegisterView.distinct RegisterView.nonzero,
+    writeCommute _ .PC .nextPC _ _ (by decide), writeOverwrite, writeOverwrite, pc]
+  congr 2
+  exact writeTrackedCongr fun index member => (values index member).symm
 
 end Sync
 

@@ -100,6 +100,115 @@ synchronizing a synchronized state again changes nothing (`syncSync`).
 `lake build` checks these proofs, and `leanchecker` replays them through Lean's
 kernel (`just kernel-check`). They use no axioms beyond the theorem's own.
 
+## The platform premise
+
+`rawVecU32InsertSailCorrect` takes `Environment`, which assumes a `Platform`
+for every memory that agrees with the original on the 120 code bytes.
+`Platform.code` assumes the result of Sail's instruction fetch at each
+instruction.
+
+`rawVecU32InsertSailCorrectInMachineMode` derives that premise. It takes
+two facts about the original machine:
+
+- `MachineMode`: machine mode, readable `misa`, `mseccfg`, and `mstatus`
+  with `MPRV` clear, landing pads disabled, HTIF disabled, and a word-aligned
+  return address in `ra`. Every one of these fields is also a field of
+  `Platform`.
+- `CodeImage`: the code fits in the address space and is word-aligned, the 30
+  words sit little-endian in memory at the code base, and for each halfword
+  Sail's `matching_pma` finds a region marked executable.
+
+[proof/Riscfree/RV32/Fetch.lean](../proof/Riscfree/RV32/Fetch.lean) proves
+what Sail's `fetch` does from these facts. Machine mode and `mstatus` are
+enough for the address translation, because `effectivePrivilege` ignores
+`MPRV` for fetches and machine mode uses Bare translation. Each halfword read
+then needs the matching PMA region to be executable, HTIF off, and the two
+bytes in memory. The pinned configuration has no PMP entries and its CLINT is
+disabled, so neither affects the read. `CodeImage.withMemory` shows the image
+survives any memory that keeps the code bytes, and `Buffer.awayFromCode`
+already makes every write miss the code. So the old "for every memory"
+premise follows (`Environment.ofMachine`).
+
+The original theorem is unchanged. `rawVecU32InsertSailCorrectInMachineMode`
+is a corollary of it. `Nonvacuity.lean` shows that its premises hold on the
+model for all five paths (`machineAppendRuns`, ...).
+
+The converse is not proved: that every `Environment` gives a `CodeImage`.
+It would need an inversion of Sail's `mem_read`. So the new theorem is not
+formally shown to cover every situation the old one covers. Both theorems
+remain, and for real hardware the new premises are the natural ones to check.
+
+`Platform.ofCodeImage` builds a `Platform` the same way for any routine, so the
+popcount proofs could drop their code-mapping premise too. They have not been
+changed.
+
+## Calling shim
+
+The Rust demo calls `call_raw_vec_u32_insert`, the seven-instruction shim in
+[examples/raw_vec_call.S](../examples/raw_vec_call.S), rather than the
+routine itself. [proof/RawVec/Shim.lean](../proof/RawVec/Shim.lean) proves the
+shim and the routine together.
+
+### What is checked
+
+- The table holds the shim's seven linked words. `call raw_vec_u32_insert`
+  assembles to `auipc ra, 0x1` and `jalr ra, -0x2a8(ra)`. Their immediates
+  depend on where the linker puts the two functions. `just prove` compares the
+  shim's 28 bytes and the routine's 120 bytes with the tables. It also checks
+  that the routine starts exactly `routineOffset` (0xd60) bytes after the shim.
+  If a firmware change moves either function, the check fails, and the table
+  and `routineOffset` must be updated together.
+- The shim's steps use the same `Fetch.lean` derivation as the routine, so
+  neither code image is assumed to be fetchable. `ShimEnvironment` requires
+  machine mode and the two code images in executable memory.
+- The routine theorem is applied to the state the shim reaches after `jalr`.
+  `syncInside` re-expresses that state in the routine's snapshot form, and it
+  converts the routine's end state back afterward. `rawVecU32InsertSailRun`
+  exposes the end state in that form. It is the proof's former internal
+  statement, so `rawVecU32InsertSailCorrect` is unchanged.
+
+### What the theorems say
+
+`callRawVecU32InsertSailAtReturn` holds for any caller. After
+`call.count + 6` instructions, the shim stands at its `ret`. `a0` holds the
+routine's status, and `ra` holds the caller's return address. Every register
+other than the PC, `nextPC`, and `a0`–`a7` has its original value; in
+particular `ra` and `sp` are restored. Memory is the routine's result applied
+to the original memory with `ra` stored at `sp - 4`.
+
+`callRawVecU32InsertSailCorrect` adds the `ret` for a caller whose return
+address is word-aligned. After `call.count + 7` instructions, the PC is the
+caller's return address, with the same register and memory guarantees.
+
+### Premises beyond the routine's
+
+`ShimLayout` adds what the shim needs:
+
+- The saved-`ra` word at `sp - 4` is readable, writable, and aligned. It is
+  disjoint from the header, from every element slot up to the length, and from
+  both code images.
+- The routine's writes (the length word and the shifted slots) miss the shim's
+  code, so the shim's last three instructions are still there to run.
+
+The header and buffer premises are the routine's, stated for the original
+machine. The proof transfers them across the shim's stack store.
+`ShimHypotheses` in `Nonvacuity.lean` bundles every premise. The model places
+the shim at `0x2a0`, the routine at `0x1000`, and `sp` at `0x5000`, and
+`shimAppendRuns`, ..., `shimFullRuns` apply the full theorem on each of the
+five paths.
+
+### Why the last `ret` is not always covered
+
+The pinned Sail configuration sets `hartSupports Ext_Zca` to `false`.
+`jump_to` therefore raises a fetch-address-misaligned exception for any
+target with bit 1 set, whatever `misa.C` says. The Rust caller is compiled for
+`riscv32imc`, so its return address can have bit 1 set. The ESP32-C3 implements
+the C extension and returns there correctly. In the linked demo, the five calls
+return to `0x4201362c`, `0x4201363e`, `0x42013650`, `0x42013662`, and
+`0x420136a2`. Three of them have bit 1 set. For those three, the final `ret` is
+the only instruction outside the formal guarantee. Covering it would need a Sail
+configuration with Zca, which in turn means verifying the compressed caller.
+
 ## Remaining trusted base
 
 The later sections of this note add to this list as the guarantee is
@@ -111,5 +220,26 @@ extended.
   (no PMP entries, CLINT disabled, compressed instructions disabled).
 - `Riscfree.RV32.step` and `run`: one uninterrupted Sail instruction per
   step, with no interrupt delivery or counters.
-- GNU binutils (`nm`, `objdump`) locating the routine's bytes in the ELF
-  for the linked-byte check.
+- GNU binutils (`nm`, `objdump`) locating the routine's and the shim's bytes
+  in the ELF for the linked-byte check.
+
+About the Rust caller, the following remain trusted:
+
+- **Calling convention.** The caller passes the header pointer, index, and
+  value in `a0`–`a2`, and its return address in `ra`. It enters the shim
+  with `jal`/`jalr`, and that instruction itself is not modeled. The caller
+  expects only `a0` as a result. It treats `a0`–`a7` as clobbered, which the
+  RISC-V ABI allows and the theorems confirm.
+- **The final `ret`** when the return address has bit 1 set (see above).
+- **Memory facts.** The `Header`, `Buffer`, and `ShimLayout` premises:
+  readable and writable PMA regions, the initialized elements, and the
+  separation of the header, buffer, stack slot, and code. In the demo, Rust's
+  types and the `unsafe` block's safety comment establish these, and the proof
+  does not check them.
+- **No concurrent access.** Nothing else reads or writes the header, buffer,
+  or stack slot during the call. No interrupt or exception arrives: the demo
+  disables the watchdogs and runs without interrupts, and `step` does not
+  model their delivery.
+- **The machine state at entry.** Machine mode, `MPRV` clear, landing pads and
+  HTIF disabled. The ESP32-C3 has no HTIF. The model's HTIF and landing-pad
+  settings stand for hardware that does not implement those features.

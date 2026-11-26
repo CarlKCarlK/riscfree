@@ -30,8 +30,8 @@ so every instruction is a 32-bit word, and `zext.b` links as `andi a0, a1, 255`.
 Run `just prove` with Elan, Python 3, and GNU binutils installed. It checks
 the Lean proofs, then builds each firmware variant and compares the linked bytes of the
 routine it calls with the instruction words decoded by Sail: all 56 bytes of
-`popcount128`, all 112 bytes of `popcount128_swar`, and all 120 bytes of
-`raw_vec_u32_insert`. Lake uses the pinned
+`popcount128`, all 112 bytes of `popcount128_swar`, all 120 bytes of
+`raw_vec_u32_insert`, and all 28 bytes of its calling shim. Lake uses the pinned
 Pico FV and Sail dependencies in `lake-manifest.json` and Lean 4.28.0-rc1.
 
 `popcount128SailCorrect` and `popcount128SwarSailCorrect` cover every 128-bit
@@ -97,8 +97,10 @@ The files are:
   instruction, loop invariants, and the final theorem.
 - `proof/RawVec.lean` and `proof/RawVec/Instructions.lean`: the bounded
   vector specification, execution proof, and 30-instruction table.
+- `proof/RawVec/Shim.lean`: the calling shim's instruction table and its
+  composition with the routine.
 - `proof/RawVec/Nonvacuity.lean`: concrete machines that satisfy every
-  premise of the RawVec theorem, one per execution path.
+  premise of the RawVec and shim theorems, one per execution path.
 - `proof/Riscfree/RV32/`: reusable RV32 infrastructure. It provides register
   snapshots synchronized with the Sail state, a step lemma per opcode built on
   Pico FV's equivalence theorems, the platform premises, the pre-simplified
@@ -145,9 +147,13 @@ capacity take 5, 6, and 7 instructions respectively.
 The model needs a mapped, word-aligned code image and return address.
 Because the routine stores to memory, `Environment` states the platform
 premise, including the code mapping, for every memory that agrees with the
-original on the routine's 120 code bytes. In machine mode, instruction fetch
-does not translate addresses, so this follows from the code bytes and the PMA
-registers. The proof takes it as a premise rather than deriving it.
+original on the routine's 120 code bytes.
+`rawVecU32InsertSailCorrectInMachineMode` gives the same guarantee without
+that premise. It replaces `Environment` with `MachineMode` (the machine-mode
+registers and the return address) and `CodeImage` (the code bytes in memory
+that the PMA lets Sail fetch). `proof/Riscfree/RV32/Fetch.lean` derives each
+fetch from Sail's semantics, and `Environment.ofMachine` derives the old
+premise from the new ones.
 Rejected calls require only the two readable length and capacity words.
 Successful calls additionally require a readable backing pointer, the
 initialized live prefix, read permission for shifted source words, and write
@@ -161,11 +167,26 @@ builds a concrete machine for each of the five execution paths and applies the
 theorem to it. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) describes
 the model.
 
-The ESP32-C3 demo uses a call shim to give the routine a four-byte-aligned
-return address even when the surrounding firmware uses compressed
-instructions. The proof covers the insertion routine in Sail's uninterrupted
-execution model. The shim and the firmware harness are covered by the linked
-code inspection and board test.
+The ESP32-C3 demo calls the routine through the seven-instruction shim in
+`examples/raw_vec_call.S`. It gives the routine a four-byte-aligned return
+address even when the surrounding firmware uses compressed instructions.
+`proof/RawVec/Shim.lean` proves the shim and the routine together, using the
+shim's linked words. `just prove` checks the shim's 28 linked bytes and that the
+shim's `call` reaches the routine 0xd60 bytes later.
+
+- `callRawVecU32InsertSailAtReturn` covers the first six instructions for any
+  caller. After `call.count + 6` instructions, the shim stands at its `ret`
+  with the routine's status in `a0`, and with `ra`, `sp`, and every register
+  outside `a0`–`a7` restored. Memory matches the routine's result, except
+  that the stack word below `sp` holds the saved `ra`.
+- `callRawVecU32InsertSailCorrect` adds the `ret` when the caller's return
+  address is word-aligned.
+
+The pinned Sail configuration does not support compressed instructions, so it
+faults on a jump to an address with bit 1 set. In the demo, three of the five
+calls return to such an address. For those calls, the final `ret` is trusted to
+the hardware. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) lists
+everything still trusted about the Rust caller.
 
 ## Firmware
 

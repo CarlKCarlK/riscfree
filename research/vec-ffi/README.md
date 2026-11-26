@@ -62,7 +62,8 @@ RawVec<u32> PASS: [10, 20, 30, 40]; statuses [0, 0, 1, 2]; invalid length reject
 
 The demo now calls the routine through the shim in
 [examples/raw_vec_call.S](../../examples/raw_vec_call.S), which gives it the
-word-aligned return address the proof requires. On November 26, 2026, the shim
+word-aligned return address the proof requires. The shim is itself proved in
+`proof/RawVec/Shim.lean`. On November 26, 2026, the shim
 build passed the same board test with identical output.
 
 The demo asserts the final contents and checks guard words on both sides of the
