@@ -8,6 +8,7 @@ import PicoFV.RV32IM.RVSail.Opcodes.jalr
 import PicoFV.RV32IM.RVSail.Opcodes.lui
 import PicoFV.RV32IM.RVSail.Opcodes.mul
 import PicoFV.RV32IM.RVSail.Opcodes.srli
+import PicoFV.RV32IM.RVSail.Opcodes.slli
 import PicoFV.RV32IM.RVSail.Opcodes.sub
 
 /-!
@@ -79,6 +80,63 @@ theorem runStep {first second : Machine} {count : Nat} {result : Option Machine}
   simp only [run, stepped, Option.bind_some, rest]
 
 namespace Step
+
+theorem slli {source dest : regidx} {shift : BitVec 6} {sourceValue : BitVec 32}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) =
+      .ok (.SHIFTIOP (shift, source, dest, .SLLI)) (sync base frame state))
+    (sourceRead : read_xreg (regidx_to_fin source) (sync base frame state) =
+      .ok sourceValue (sync base frame state))
+    (member : regidx_to_fin dest ∈ tracked S)
+    (writes : Writes state next (regidx_to_fin dest) (sourceValue <<< (shift % 32))) :
+    step (sync base frame state) = some (sync base frame next) := by
+  have effect := OpcodeSpec.RV32.execute_SLLI_equiv
+    ((OpcodeSpec.RV32.spec_SLLI_hypotheses (rd := dest) (imm := shift)).mpr
+      ⟨syncReadPC state, sourceRead⟩)
+  refine retire fetched decoded ?_ member writes
+  simpa [OpcodeSpec.RV32.spec_SLLI, operation_list_effect, operation_effect,
+    writeReg_state_success, write_xreg, writeX, nonzeroIndex member] using effect
+
+theorem bgeu {left right : regidx} {offset : BitVec 13} {leftValue rightValue : BitVec 32}
+    {misa : RegisterType Register.misa}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) =
+      .ok (.BTYPE (offset, right, left, .BGEU)) (sync base frame state))
+    (leftRead : read_xreg (regidx_to_fin left) (sync base frame state) =
+      .ok leftValue (sync base frame state))
+    (rightRead : read_xreg (regidx_to_fin right) (sync base frame state) =
+      .ok rightValue (sync base frame state))
+    (misaRead : Sail.readReg Register.misa (sync base frame state) = .ok misa (sync base frame state))
+    (aligned : (base + RegisterView.pc state + offset.signExtend 32) % 4 = 0)
+    (jumps : Jumps state next (if rightValue.toNat ≤ leftValue.toNat then
+      RegisterView.pc state + offset.signExtend 32 else RegisterView.pc state + 4#32)) :
+    step (sync base frame state) = some (sync base frame next) := by
+  have effect := bgeuEffect _ left right offset _ leftValue rightValue (syncReadPC state)
+    leftRead rightRead misaRead aligned
+  refine jump fetched decoded ?_ jumps
+  rw [effect]
+  split <;> simp only [BitVec.add_assoc]
+
+theorem bltu {left right : regidx} {offset : BitVec 13} {leftValue rightValue : BitVec 32}
+    {misa : RegisterType Register.misa}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) =
+      .ok (.BTYPE (offset, right, left, .BLTU)) (sync base frame state))
+    (leftRead : read_xreg (regidx_to_fin left) (sync base frame state) =
+      .ok leftValue (sync base frame state))
+    (rightRead : read_xreg (regidx_to_fin right) (sync base frame state) =
+      .ok rightValue (sync base frame state))
+    (misaRead : Sail.readReg Register.misa (sync base frame state) = .ok misa (sync base frame state))
+    (aligned : (base + RegisterView.pc state + offset.signExtend 32) % 4 = 0)
+    (jumps : Jumps state next (if leftValue.toNat < rightValue.toNat then
+      RegisterView.pc state + offset.signExtend 32 else RegisterView.pc state + 4#32)) :
+    step (sync base frame state) = some (sync base frame next) := by
+  have effect := bltuEffect _ left right offset _ leftValue rightValue (syncReadPC state)
+    leftRead rightRead misaRead aligned
+  refine jump fetched decoded ?_ jumps
+  rw [effect]
+  split <;> simp only [BitVec.add_assoc]
+
 
 theorem addi {source dest : regidx} {imm : BitVec 12} {sourceValue : BitVec 32}
     (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))

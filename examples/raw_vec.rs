@@ -12,9 +12,10 @@ use header::{FULL, INDEX_OUT_OF_BOUNDS, INVALID_LENGTH, OK, RawVec};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 global_asm!(include_str!("../src/watchdog.S"));
+global_asm!(include_str!("raw_vec_call.S"));
 
 unsafe extern "C" {
-    fn raw_vec_u32_insert(vec: *mut RawVec<u32>, index: u32, value: u32) -> u32;
+    fn call_raw_vec_u32_insert(vec: *mut RawVec<u32>, index: u32, value: u32) -> u32;
     fn stop_boot_watchdogs();
 }
 
@@ -32,11 +33,11 @@ fn main() -> ! {
     // SAFETY: The header and its four initialized backing slots are disjoint.
     // No other accesses to the header or array occur during these calls.
     let statuses = unsafe {
-        let inserted = raw_vec_u32_insert(&mut vec, 1, 20);
+        let inserted = call_raw_vec_u32_insert(&mut vec, 1, 20);
         let end = vec.length;
-        let appended = raw_vec_u32_insert(&mut vec, end, 40);
-        let full = raw_vec_u32_insert(&mut vec, 0, 99);
-        let invalid_index = raw_vec_u32_insert(&mut vec, 5, 99);
+        let appended = call_raw_vec_u32_insert(&mut vec, end, 40);
+        let full = call_raw_vec_u32_insert(&mut vec, 0, 99);
+        let invalid_index = call_raw_vec_u32_insert(&mut vec, 5, 99);
         [inserted, appended, full, invalid_index]
     };
     assert_eq!(statuses, [OK, OK, FULL, INDEX_OUT_OF_BOUNDS]);
@@ -47,7 +48,7 @@ fn main() -> ! {
     // SAFETY: The header is exclusive. Its length exceeds capacity, so this
     // call returns without accessing the backing array.
     assert_eq!(
-        unsafe { raw_vec_u32_insert(&mut invalid, 0, 99) },
+        unsafe { call_raw_vec_u32_insert(&mut invalid, 0, 99) },
         INVALID_LENGTH
     );
     assert_eq!(invalid.length, 5);

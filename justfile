@@ -26,6 +26,8 @@ prove:
     just verify-elf Popcount
     cargo build --locked --release --features swar
     just verify-elf PopcountSwar
+    just build-raw-vec
+    just verify-elf RawVec target/riscv32imc-unknown-none-elf/release/examples/raw_vec
 
 # Optional: replay every proof module through Lean's kernel with leanchecker. Not part of `prove`.
 # One module at a time: checking them all in one process runs out of memory.
@@ -34,7 +36,7 @@ kernel-check:
     for module in $(find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g' | sort); do echo "leanchecker $module"; lake env leanchecker "$module" || exit 1; done
 
 [private]
-verify-elf module:
+verify-elf module elf="target/riscv32imc-unknown-none-elf/release/riscfree":
     printf '%s\n' 'import {{module}}' \
-        '#eval Riscfree.{{module}}.verifyElf "target/riscv32imc-unknown-none-elf/release/riscfree"' \
+        '#eval Riscfree.{{module}}.verifyElf "{{elf}}"' \
         | lake env lean -DwarningAsError=true --stdin

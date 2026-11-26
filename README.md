@@ -30,7 +30,8 @@ so every instruction is a 32-bit word, and `zext.b` links as `andi a0, a1, 255`.
 Run `just prove` with Elan, Python 3, and GNU binutils installed. It checks
 the Lean proofs, then builds each firmware variant and compares the linked bytes of the
 routine it calls with the instruction words decoded by Sail: all 56 bytes of
-`popcount128` and all 112 bytes of `popcount128_swar`. Lake uses the pinned
+`popcount128`, all 112 bytes of `popcount128_swar`, and all 120 bytes of
+`raw_vec_u32_insert`. Lake uses the pinned
 Pico FV and Sail dependencies in `lake-manifest.json` and Lean 4.28.0-rc1.
 
 `popcount128SailCorrect` and `popcount128SwarSailCorrect` cover every 128-bit
@@ -89,6 +90,8 @@ The files are:
 - `proof/Popcount.lean` and `proof/PopcountSwar.lean`: the application proofs.
   They contain the instruction table, register snapshot, one lemma per linked
   instruction, loop invariants, and the final theorem.
+- `proof/RawVec.lean` and `proof/RawVec/Instructions.lean`: the bounded
+  vector specification, execution proof, and 30-instruction table.
 - `proof/Riscfree/RV32/`: reusable RV32 infrastructure. It provides register
   snapshots synchronized with the Sail state, a step lemma per opcode built on
   Pico FV's equivalence theorems, the platform premises, the pre-simplified
@@ -118,12 +121,39 @@ enabled. The model steps each instruction and commits the PC. Interrupt
 delivery and hardware counters are outside that model. The proof trusts the
 Rust harness and ESP32-C3 hardware.
 
+### Bounded-vector insertion
+
+`rawVecU32InsertSailCorrect` describes the final contents of every live slot
+after inserting a `u32`. It also specifies the new length, unchanged pointer
+and capacity, and unchanged memory outside the length word and the written
+suffix. Error checks take precedence in this order: invalid length, invalid
+index, full capacity. Every rejected call preserves all byte memory.
+
+The theorem gives 14 instructions for append and `18 + 6m` for insertion
+before a suffix of `m > 0` elements. Invalid length, invalid index, and full
+capacity take 5, 6, and 7 instructions respectively.
+
+The model needs a mapped, word-aligned code image and return address.
+Rejected calls require only the two readable length and capacity words.
+Successful calls additionally require a readable backing pointer, the
+initialized live prefix, read permission for shifted source words, and write
+permission for the changed slots and length word. The header and the accessed
+buffer addresses must fit in the RV32 address space, the live buffer and header
+must be disjoint, and every write must be disjoint from the code. No permission
+is required for spare slots after the new length.
+
+The ESP32-C3 demo uses a call shim to give the routine a four-byte-aligned
+return address even when the surrounding firmware uses compressed
+instructions. The proof covers the insertion routine in Sail's uninterrupted
+execution model. The shim and the firmware harness are covered by the linked
+code inspection and board test.
+
 ## Firmware
 
 Install the Rust target and flashing tool:
 
 ```bash
-rustup target add riscv32imc-unknown-none-elf
+rustup target add riscv32imc-unknown-none-elf riscv32im-unknown-none-elf
 cargo install espflash --locked
 ```
 
@@ -134,7 +164,8 @@ just check     # Type-check the firmware
 just build     # Build release firmware
 just run       # Build, flash, and open the serial monitor (bit loop)
 just run swar  # Same, but call the SWAR routine in src/popcount_swar.S
-just prove     # Check both proofs and both routines' linked bytes
+just run-raw-vec   # Build, verify the bytes, flash, and monitor RawVec
+just prove         # Check all proofs and all three routines' linked bytes
 just kernel-check  # Optional: replay every proof module with leanchecker
 ```
 
