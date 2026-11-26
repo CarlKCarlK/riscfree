@@ -1,10 +1,8 @@
-set shell := ["bash", "-cu"]
+run:
+    cargo run --locked --release
 
-run arg1="c3" arg2="":
-    ./scripts/device-action.sh run {{arg1}} {{arg2}}
+check:
+    cargo check --locked
 
-check arg1="c3" arg2="":
-    ./scripts/device-action.sh check {{arg1}} {{arg2}}
-
-build arg1="c3" arg2="":
-    ./scripts/device-action.sh build {{arg1}} {{arg2}}
+build:
+    cargo build --locked --release
