@@ -68,6 +68,14 @@ noncomputable def run : Nat → Machine → Option Machine
   | 0, state => some state
   | count + 1, state => (step state).bind (run count)
 
+theorem runAdd (first second : Nat) (state : Machine) :
+    run (first + second) state = (run first state).bind (run second) := by
+  induction first generalizing state with
+  | zero => simp [run]
+  | succ first ih =>
+    simp only [Nat.succ_add, run, ih]
+    cases step state <;> rfl
+
 theorem stepOfEffects (state executed : Machine) (word : BitVec 32)
     (operation : instruction) (next : BitVec 32)
     (fetched : fetch () state = .ok (.F_Base word) state)

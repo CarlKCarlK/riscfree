@@ -23,12 +23,13 @@ pinned Pico FV and Sail dependencies in `lake-manifest.json` and Lean 4.28.0-rc1
 The theorem covers every 128-bit input. The routine returns after 664 Sail
 instructions with the population count in `a0`. It preserves byte memory and
 all registers outside `a0` and `t0`–`t4`, with the expected update to the PC and
-Sail's internal `nextPC`. The proof connects the loop invariants in
-`proof/Popcount.lean` to Sail one instruction at a time.
+Sail's internal `nextPC`. The sections in `proof/Popcount.lean` follow the proof
+from the mathematical specification and linked instruction words through the
+Sail steps, loop invariants, and ELF byte check. The reusable RV32 lemmas live
+under `proof/Riscfree/RV32/`.
 
-The theorem's `entry` premise and `Platform` in
-`proof/Riscfree/PopcountPlatform.lean` specify the starting state and execution
-conditions. The code mapping supplies the linked halfwords to Sail's
+The theorem's `entry` premise and the `Platform` section specify the starting
+state and execution conditions. The code mapping supplies the linked halfwords to Sail's
 instruction fetch. The four data words occupy naturally aligned, readable RAM
 and agree with the little-endian input bytes. The hart runs in machine mode
 with `MPRV` clear, the host interface and landing-pad checks disabled, and a

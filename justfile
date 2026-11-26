@@ -9,4 +9,4 @@ build:
 
 prove: build
     lake build
-    lake env lean -DwarningAsError=true --run proof/VerifyElf.lean target/riscv32imc-unknown-none-elf/release/riscfree
+    printf '%s\n' 'import Popcount' '#eval Riscfree.verifyElf "target/riscv32imc-unknown-none-elf/release/riscfree"' | lake env lean -DwarningAsError=true --stdin
