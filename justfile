@@ -27,6 +27,12 @@ prove:
     cargo build --locked --release --features swar
     just verify-elf PopcountSwar
 
+# Optional: replay every proof module through Lean's kernel with leanchecker. Not part of `prove`.
+# One module at a time: checking them all in one process runs out of memory.
+kernel-check:
+    lake build
+    for module in $(find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g' | sort); do echo "leanchecker $module"; lake env leanchecker "$module" || exit 1; done
+
 [private]
 verify-elf module:
     printf '%s\n' 'import {{module}}' \
