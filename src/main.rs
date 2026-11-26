@@ -1,11 +1,12 @@
-//! riscfree Phase 1: Execute hand-written RISC-V assembly.
+//! riscfree: Blink GPIO12 using RISC-V assembly.
 
 #![no_std]
 #![no_main]
 
-use core::{arch::global_asm, convert::Infallible, future::pending};
+use core::{arch::global_asm, convert::Infallible};
 use embassy_executor::Spawner;
 use esp_backtrace as _;
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use log::info;
 
 use device_envoy_esp::{Result, init_and_start};
@@ -13,22 +14,40 @@ use device_envoy_esp::{Result, init_and_start};
 esp_bootloader_esp_idf::esp_app_desc!();
 
 global_asm!(
-    ".section .text.riscfree_add, \"ax\"",
+    ".section .text.riscfree_blink, \"ax\"",
     ".balign 4",
-    ".global riscfree_add",
-    ".type riscfree_add, @function",
+    ".global riscfree_blink",
+    ".type riscfree_blink, @function",
     ".option push",
     ".option norvc",
     ".option norelax",
-    "riscfree_add:",
-    "    add a0, a0, a1",
-    "    jalr zero, 0(ra)",
-    ".size riscfree_add, . - riscfree_add",
+
+    "riscfree_blink:",
+    "    li t0, 0x60004000", // GPIO register base
+    "    li t1, 4096",       // GPIO12 bit mask
+    "    li t2, 20000000",   // Delay iterations
+
+    "blink:",
+    "    sw t1, 8(t0)",      // LED on
+    "    mv t3, t2",
+    "delay_on:",
+    "    addi t3, t3, -1",
+    "    bne t3, zero, delay_on",
+
+    "    sw t1, 12(t0)",     // LED off
+    "    mv t3, t2",
+    "delay_off:",
+    "    addi t3, t3, -1",
+    "    bne t3, zero, delay_off",
+
+    "    j blink",
+
+    ".size riscfree_blink, . - riscfree_blink",
     ".option pop",
 );
 
 unsafe extern "C" {
-    fn riscfree_add(a: u32, b: u32) -> u32;
+    fn riscfree_blink() -> !;
 }
 
 #[esp_rtos::main]
@@ -38,28 +57,17 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 async fn inner_main(spawner: Spawner) -> Result<Infallible> {
-    init_and_start!(_p);
+    init_and_start!(p);
 
     esp_println::logger::init_logger(log::LevelFilter::Info);
-    info!("riscfree Phase 1 starting");
 
-    let test_cases: [(u32, u32); 5] = [
-        (20, 22),
-        (0, 0),
-        (u32::MAX, 0),
-        (u32::MAX, 1),
-        (u32::MAX, u32::MAX),
-    ];
+    let _led = Output::new(
+        p.GPIO12,
+        Level::Low,
+        OutputConfig::default(),
+    );
 
-    for (a, b) in test_cases {
-        let actual = unsafe { riscfree_add(a, b) };
-        let expected = a.wrapping_add(b);
+    info!("Transferring control to riscfree assembly");
 
-        info!("{a} + {b} = {actual}");
-        assert_eq!(actual, expected);
-    }
-
-    info!("riscfree: All tests passed");
-
-    pending().await
+    unsafe { riscfree_blink() }
 }
