@@ -1,9 +1,19 @@
 # riscfree
 
-ESP32-C3 firmware for the LuatOS Core Board. The Rust entry point and boot
-metadata live in `src/main.rs`. The assembly program in `src/blink.S` configures
-GPIO12 and repeatedly toggles the active-high onboard D4 LED. It uses a busy
-loop for timing. This board uses external SPI flash in DIO mode.
+ESP32-C3 firmware for the LuatOS Core Board. Rust passes a fixed `u128` to
+`src/popcount.S` by address, then reports the returned `u8` over serial:
+
+```text
+popcount(0xd3a57c1902efb6489d306a17c2f5804b) = 61
+```
+
+The assembly routine reads four aligned 32-bit words and counts their set bits.
+It leaves memory and callee-saved registers unchanged. The Rust harness supplies
+the input, calls the routine, prints the result, and asserts that it equals 61.
+The machine-code proof would take that harness as trusted and cover the assembly
+routine for all inputs. After the assertion passes, the firmware runs
+`src/blink.S` to blink the onboard D4 LED on GPIO12. This board uses external
+SPI flash in DIO mode.
 
 Install the Rust target and flashing tool:
 
