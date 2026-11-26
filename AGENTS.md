@@ -7,6 +7,8 @@ they are more specific.
 
 - Work on `main`. Create or switch to another branch only when given
   permission.
+- This is a fast-moving preliminary project: commit and push to `main` without
+  asking once a change is complete and its self-review and checks pass.
 
 ## README credits
 
