@@ -1,6 +1,6 @@
 #![no_std]
 
-mod header;
+pub mod header;
 
 use header::{FULL, INDEX_OUT_OF_BOUNDS, INVALID_LENGTH, OK, Pair, RawVec};
 

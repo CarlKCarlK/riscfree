@@ -20,7 +20,7 @@ fn main() {
 
     // The same routine objects as the ESP32-C3 demo, without its shims.
     let linked = Path::new("../research/vec-ffi/linked");
-    for name in ["raw_vec", "raw_vec_remove"] {
+    for name in ["raw_vec", "raw_vec_remove", "sorted_map"] {
         let object = compile::routine_object(linked, name);
         println!("cargo:rustc-link-arg-examples={}", object.display());
     }

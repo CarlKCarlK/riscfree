@@ -13,7 +13,8 @@ fn main() {
 
     let shims = "examples/raw_vec_call.S";
     let remove_shims = "examples/raw_vec_remove_call.S";
-    for source in [shims, remove_shims] {
+    let map_shims = "examples/sorted_map_call.S";
+    for source in [shims, remove_shims, map_shims] {
         println!("cargo:rerun-if-changed={source}");
     }
     assert_eq!(
@@ -32,12 +33,17 @@ fn main() {
     // demo's code. The proof of the u32 shim records that offset.
     //
     // The removal routines and their shims follow in two more objects, so
-    // adding them moved neither the insertion routines nor that offset.
+    // adding them moved neither the insertion routines nor that offset. The
+    // sorted-map routines follow the removal routines directly, as in the QEMU
+    // harness, so their calls into the RawVec routines have the same offsets in
+    // both executables. All unproved shims come last.
     let objects = [
         assemble(&out, &manifest, shims, "raw_vec_shims"),
         compile::routine_object(linked, "raw_vec"),
         compile::routine_object(linked, "raw_vec_remove"),
+        compile::routine_object(linked, "sorted_map"),
         assemble(&out, &manifest, remove_shims, "raw_vec_remove_shims"),
+        assemble(&out, &manifest, map_shims, "sorted_map_shims"),
     ];
     for object in objects {
         println!("cargo:rustc-link-arg-examples={}", object.display());

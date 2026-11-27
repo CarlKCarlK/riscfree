@@ -4,6 +4,9 @@ import RawVec.Shim
 import RawVec.PairInsert
 import RawVec.U32Remove
 import RawVec.PairRemove
+import SortedMap.Search.Instructions
+import SortedMap.Remove.Instructions
+import SortedMap.Insert.Table
 import Riscfree.Elf
 
 /-!
@@ -27,6 +30,7 @@ words of the table its proof decodes (see `proof/Riscfree/Elf.lean`):
 * `popcount`, `popcount-swar`: the two popcount routines.
 * `raw-vec`: `raw_vec_u32_insert`, `raw_vec_pair_insert`, `raw_vec_u32_remove`,
   and `raw_vec_pair_remove`.
+* `sorted-map`: both searches, insertion, removal, and the update routines’ call targets.
 * `raw-vec-shim`: the u32 calling shim, and that its `call` reaches the
   routine exactly `routineOffset` bytes ahead.
 * `uncompressed`: the file has no compressed instructions, as the QEMU harness
@@ -62,6 +66,19 @@ def runCheck : String → String → IO Unit
     verifyElf path "raw_vec_pair_insert" (RawVec.PairInsert.instructions.map Prod.fst)
     verifyElf path "raw_vec_u32_remove" (RawVec.U32Remove.instructions.map Prod.fst)
     verifyElf path "raw_vec_pair_remove" (RawVec.PairRemove.instructions.map Prod.fst)
+  | "sorted-map", path => do
+    let lower ← verifyElfSymbol path "sorted_map_lower_bound" (SortedMap.Search.lowerInstructions.map Prod.fst)
+    verifyElf path "sorted_map_upper_bound" (SortedMap.Search.upperInstructions.map Prod.fst)
+    let insert ← verifyElfSymbol path "sorted_map_insert" (SortedMap.Insert.instructions.map Prod.fst)
+    let vectorInsert ← verifyElfSymbol path "raw_vec_pair_insert" (RawVec.PairInsert.instructions.map Prod.fst)
+    unless insert + SortedMap.Insert.searchOffset.toNat == lower &&
+        insert + SortedMap.Insert.vectorOffset.toNat == vectorInsert + 2 ^ 32 do
+      throw (IO.userError "sorted_map_insert call targets differ from the Lean proof")
+    let remove ← verifyElfSymbol path "sorted_map_remove" (SortedMap.Remove.instructions.map Prod.fst)
+    let vector ← verifyElfSymbol path "raw_vec_pair_remove" (RawVec.PairRemove.instructions.map Prod.fst)
+    unless remove + SortedMap.Remove.searchOffset.toNat == lower + 2 ^ 32 &&
+        remove + SortedMap.Remove.vectorOffset.toNat == vector + 2 ^ 32 do
+      throw (IO.userError "sorted_map_remove call targets differ from the Lean proof")
   | "raw-vec-shim", path => checkRawVecShim path
   | "uncompressed", path => verifyUncompressed path
   | check, _ => throw (IO.userError s!"unknown linked-byte check {check}")

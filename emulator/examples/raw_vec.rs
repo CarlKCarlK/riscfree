@@ -1,4 +1,4 @@
-//! Exercise the linked RawVec insertion and removal routines under QEMU.
+//! Exercise the linked RawVec and sorted-map routines under QEMU.
 //!
 //! This harness has no compressed instructions, so every call leaves a
 //! word-aligned return address and the routines are called without the
@@ -13,6 +13,8 @@ mod header;
 mod raw_vec_case;
 #[path = "../../src/cases/raw_vec_remove.rs"]
 mod raw_vec_remove_case;
+#[path = "../../src/cases/sorted_map.rs"]
+mod sorted_map_case;
 #[path = "../src/runtime.rs"]
 mod runtime;
 use header::{Pair, RawVec};
@@ -22,6 +24,10 @@ unsafe extern "C" {
     fn raw_vec_pair_insert(vec: *mut RawVec<Pair>, index: u32, value: Pair) -> u32;
     fn raw_vec_u32_remove(vec: *mut RawVec<u32>, index: u32) -> u32;
     fn raw_vec_pair_remove(vec: *mut RawVec<Pair>, index: u32) -> u32;
+    fn sorted_map_lower_bound(map: *const RawVec<Pair>, key: u32) -> u32;
+    fn sorted_map_upper_bound(map: *const RawVec<Pair>, key: u32) -> u32;
+    fn sorted_map_insert(map: *mut RawVec<Pair>, entry: Pair) -> u32;
+    fn sorted_map_remove(map: *mut RawVec<Pair>, key: u32) -> u32;
 }
 
 fn main() {
@@ -46,4 +52,9 @@ fn main() {
     runtime::println(format_args!(
         "RawVec<Pair> remove PASS: [(10, 100), ..., (40, 400)] -> [(30, 300)] -> []; statuses {statuses:?}; invalid length rejected"
     ));
+    // SAFETY: Each routine has the contract the case requires.
+    unsafe {
+        sorted_map_case::search(sorted_map_lower_bound, sorted_map_upper_bound, runtime::println);
+        sorted_map_case::update(sorted_map_insert, sorted_map_remove, runtime::println);
+    }
 }

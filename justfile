@@ -14,14 +14,21 @@ check:
 build:
     cargo build --locked --release
 
-# Build the ESP32-C3 RawVec demo and check the linked instructions of all four routines.
+# Build the ESP32-C3 demo and verify the RawVec and sorted-map routines.
 build-raw-vec:
+    #!/usr/bin/env bash
+    set -euo pipefail
     cargo build --locked --release --example raw_vec --features raw-vec-demo
-    python3 research/vec-ffi/linked/check_elf.py target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    python3 research/vec-ffi/linked/check_elf.py {{firmware_release}}/examples/raw_vec
+    lake build
+    {
+        cat scripts/LinkedBytes.lean
+        printf '%s\n' '#eval linkedBytes ["sorted-map", "{{firmware_release}}/examples/raw_vec"]'
+    } | lake env lean -DwarningAsError=true --stdin
 
-# Flash the checked RawVec demo and print its UART assertions.
+# Flash the checked demo and print its six UART test results.
 run-raw-vec: build-raw-vec
-    espflash flash --monitor target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    espflash flash --monitor {{firmware_release}}/examples/raw_vec
 
 # Run one popcount routine under QEMU instead of on the board: `just emulate` (bit loop) or `just emulate swar`.
 emulate algorithm="loop":
@@ -49,11 +56,13 @@ prove:
         '"popcount-swar", "{{linked}}/firmware-popcount-swar.elf",' \
         '"raw-vec", "{{firmware_release}}/examples/raw_vec",' \
         '"raw-vec-shim", "{{firmware_release}}/examples/raw_vec",' \
+        '"sorted-map", "{{firmware_release}}/examples/raw_vec",' \
         '"popcount", "{{linked}}/emulator-popcount.elf",' \
         '"uncompressed", "{{linked}}/emulator-popcount.elf",' \
         '"popcount-swar", "{{linked}}/emulator-popcount-swar.elf",' \
         '"uncompressed", "{{linked}}/emulator-popcount-swar.elf",' \
         '"raw-vec", "{{emulator_release}}/examples/raw_vec",' \
+        '"sorted-map", "{{emulator_release}}/examples/raw_vec",' \
         '"uncompressed", "{{emulator_release}}/examples/raw_vec",' \
         '"reject-popcount", "{{linked}}/negative/popcount.elf",' \
         '"reject-popcount-swar", "{{linked}}/negative/popcount-swar.elf",' \
@@ -62,6 +71,10 @@ prove:
         '"reject-raw-vec", "{{linked}}/negative/raw-vec-u32-remove.elf",' \
         '"reject-raw-vec", "{{linked}}/negative/raw-vec-pair-remove.elf",' \
         '"reject-raw-vec-shim", "{{linked}}/negative/raw-vec-shim.elf",' \
+        '"reject-sorted-map", "{{linked}}/negative/sorted-map-lower-bound.elf",' \
+        '"reject-sorted-map", "{{linked}}/negative/sorted-map-upper-bound.elf",' \
+        '"reject-sorted-map", "{{linked}}/negative/sorted-map-remove.elf",' \
+        '"reject-sorted-map", "{{linked}}/negative/sorted-map-insert.elf",' \
         '"reject-uncompressed", "{{linked}}/negative/emulator-rvc.elf"' \
         ']'; } | lake env lean -DwarningAsError=true --stdin
 
@@ -75,6 +88,12 @@ axiom-paths:
         Riscfree.RawVec.U32Remove.rawVecU32RemoveSailCorrect {{ axiom-path-flags }}
     lake env lean --run scripts/AxiomPaths.lean RawVec.PairRemove \
         Riscfree.RawVec.PairRemove.rawVecPairRemoveSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean SortedMap.Search.Correct \
+        Riscfree.SortedMap.Search.sortedMapSearchSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean SortedMap.Remove \
+        Riscfree.SortedMap.Remove.sortedMapRemoveSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean SortedMap.Insert \
+        Riscfree.SortedMap.Insert.sortedMapInsertSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \
@@ -114,4 +133,8 @@ corrupt-linked:
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec raw_vec_u32_remove {{linked}}/negative/raw-vec-u32-remove.elf
     python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec raw_vec_pair_remove {{linked}}/negative/raw-vec-pair-remove.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec call_raw_vec_u32_insert {{linked}}/negative/raw-vec-shim.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec sorted_map_lower_bound {{linked}}/negative/sorted-map-lower-bound.elf
+    python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec sorted_map_upper_bound {{linked}}/negative/sorted-map-upper-bound.elf
+    python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec sorted_map_remove {{linked}}/negative/sorted-map-remove.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec sorted_map_insert {{linked}}/negative/sorted-map-insert.elf
     python3 scripts/corrupt_elf.py rvc {{emulator_release}}/examples/raw_vec {{linked}}/negative/emulator-rvc.elf

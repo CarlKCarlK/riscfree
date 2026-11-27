@@ -8,7 +8,8 @@ use std::{
 };
 
 /// Compile `<name>.rs` in `linked_directory`, which defines verified RawVec
-/// routines (`raw_vec` for insertion, `raw_vec_remove` for removal), to
+/// routines (`raw_vec` for insertion, `raw_vec_remove` for removal, `sorted_map`
+/// for the sorted map), to
 /// `<name>.o` in `OUT_DIR` and return its path.
 pub fn routine_object(linked_directory: &Path, name: &str) -> PathBuf {
     let source = linked_directory.join(format!("{name}.rs"));
