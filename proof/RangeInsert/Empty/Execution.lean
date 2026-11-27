@@ -464,28 +464,47 @@ def restore (initial state : Snapshot) (pc : Word) : Snapshot :=
     s0 := initial.s0, s1 := initial.s1, s2 := initial.s2, s3 := initial.s3,
     s4 := initial.s4, s5 := initial.s5 }
 
+theorem Frame.epilogueFrom {base returnAddress : Word} {original : Machine} {initial : Snapshot}
+    (frame : Frame base returnAddress original initial) {background : Machine}
+    (machine : MachineState background) (image : CodeImage instructions base background)
+    (readable : ∀ offset ∈ ([44, 40, 36, 32, 28, 24, 20] : List Word),
+      Readable background (frameBase initial.sp + offset))
+    (saved : ∀ (offset : Word) (value : Word),
+      offset ∈ ([44, 40, 36, 32, 28, 24, 20] : List Word) →
+      WordAt (pushed original.mem initial) (frameBase initial.sp + offset).toNat value →
+      WordAt background.mem (frameBase initial.sp + offset).toNat value)
+    (state : Snapshot)
+    (atExit : state.pc = 0x124#32) (lowered : state.sp = frameBase initial.sp) :
+    run 9 (sync base background state) =
+      some (sync base background
+        (restore initial state (returnAddress - base))) := by
+  obtain ⟨ra, s0, s1, s2, s3, s4, s5⟩ := savedWords original.mem initial frame.frameFits
+  refine runStep (step124 machine image _ atExit _ (lowered ▸ readable _ (by decide)) (lowered ▸ saved 44 _ (by decide) ra)) ?_
+  refine runStep (step128 machine image _ rfl _ (lowered ▸ readable _ (by decide)) (lowered ▸ saved 40 _ (by decide) s0)) ?_
+  refine runStep (step12c machine image _ rfl _ (lowered ▸ readable _ (by decide)) (lowered ▸ saved 36 _ (by decide) s1)) ?_
+  refine runStep (step130 machine image _ rfl _ (lowered ▸ readable _ (by decide)) (lowered ▸ saved 32 _ (by decide) s2)) ?_
+  refine runStep (step134 machine image _ rfl _ (lowered ▸ readable _ (by decide)) (lowered ▸ saved 28 _ (by decide) s3)) ?_
+  refine runStep (step138 machine image _ rfl _ (lowered ▸ readable _ (by decide)) (lowered ▸ saved 24 _ (by decide) s4)) ?_
+  refine runStep (step13c machine image _ rfl _ (lowered ▸ readable _ (by decide)) (lowered ▸ saved 20 _ (by decide) s5)) ?_
+  refine runStep (step140 machine image _ rfl) ?_
+  refine runStep (step144 machine image _ rfl returnAddress frame.link
+    frame.mode.returnLow frame.mode.returnNext) ?_
+  have restored : frameBase initial.sp + 48#32 = initial.sp := BitVec.sub_add_cancel _ _
+  simp only [lowered, restored]
+  rfl
+
 theorem Frame.epilogue {base returnAddress : Word} {original : Machine} {initial : Snapshot}
     (frame : Frame base returnAddress original initial) (state : Snapshot)
     (atExit : state.pc = 0x124#32) (lowered : state.sp = frameBase initial.sp) :
     run 9 (sync base { original with mem := pushed original.mem initial } state) =
       some (sync base { original with mem := pushed original.mem initial }
-        (restore initial state (returnAddress - base))) := by
-  let machine := frame.mode.toMachineState
-  have savedImage := frame.pushedImage
-  obtain ⟨ra, s0, s1, s2, s3, s4, s5⟩ := savedWords original.mem initial frame.frameFits
-  refine runStep (step124 machine savedImage _ atExit _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ ra)) ?_
-  refine runStep (step128 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s0)) ?_
-  refine runStep (step12c machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s1)) ?_
-  refine runStep (step130 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s2)) ?_
-  refine runStep (step134 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s3)) ?_
-  refine runStep (step138 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s4)) ?_
-  refine runStep (step13c machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s5)) ?_
-  refine runStep (step140 machine savedImage _ rfl) ?_
-  refine runStep (step144 machine savedImage _ rfl returnAddress frame.link
-    frame.mode.returnLow frame.mode.returnNext) ?_
-  have restored : frameBase initial.sp + 48#32 = initial.sp := BitVec.sub_add_cancel _ _
-  simp only [lowered, restored]
-  rfl
+        (restore initial state (returnAddress - base))) :=
+  frame.epilogueFrom (frame.mode.toMachineState.withMemory (pushed original.mem initial))
+    frame.pushedImage (fun offset member => by
+      obtain ⟨aligned, regions, region, read, mapped, permission⟩ := frame.readable offset member
+      have stored : original.regs.get? Register.pma_regions = some regions := readReg_succ.mp read
+      exact ⟨aligned, regions, region, readReg_succ.mpr stored, mapped, permission⟩)
+    (fun _ _ _ contents => contents) state atExit lowered
 
 theorem runEmpty {base returnAddress : Word} {original : Machine} {initial : Snapshot}
     (premises : Premises base returnAddress original initial) :

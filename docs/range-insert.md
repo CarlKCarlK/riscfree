@@ -192,8 +192,15 @@ followed by a gap, growth followed by end of map, and a maximum endpoint
 with two deletions.
 
 The outer predecessor-extension path shares the checked positive-rank
-prefix with the covered path. Its two-word arithmetic, six stores, and
-call to the helper now have checked instruction runs. The remaining outer
-work composes the call and return and constructs the helper's layout from
-the caller's state. Fresh insertion and the unified mathematical theorem
-for successful machine execution remain open.
+prefix with the covered path. The checked run to the helper call takes
+58 instructions plus upper-bound search. The helper's lower bound
+selects the predecessor whose end the caller extended. A separate
+checked run from the helper's return takes 10 instructions through the
+common epilogue. A concrete machine extends `4..=9` with `10..=11` and
+checks the prefix through the helper call.
+
+The remaining extension work is to construct the helper's layout from
+the caller's memory and connect the returned entries and cache to the
+mathematical model. The fresh path can reuse the sorted-map insertion
+theorem's return snapshot. The full fresh path and unified mathematical
+theorem for successful machine execution remain open.

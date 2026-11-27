@@ -29,8 +29,10 @@ private theorem insertLength : instructions.length = 109 := rfl
 def image : Model.Image where
   word index :=
     if index < 0x482 then Model.tableWord 0x400 (SortedMap.Search.instructions .upper) index
+    else if index = 0x940 then some 15
+    else if index = 0x941 then some 0
     else Model.tableWord 0x482 instructions index
-  keys := List.range' 0x1000 (0x13bc - 0x1000)
+  keys := List.range' 0x1000 (0x13bc - 0x1000) ++ List.range' 0x2500 8
 
 def modelCall (length : Word) (old : Nat → Pair) (start stop : Word) : Call :=
   { header := 0x3000, length, data := 0x4000, old, start, stop }
@@ -40,14 +42,15 @@ def contents (call : Call) : Model.Contents Pair :=
 
 def initial (call : Call) : Snapshot :=
   { ra := Model.returnTo, sp, s0 := 17, s1 := 18, s2 := 19, s3 := 20, s4 := 21, s5 := 22,
-    a0 := call.header, a1 := 0x5000, a2 := call.start, a3 := call.stop, a4 := 0x6000, a5 := 4 }
+    a0 := call.header, a1 := 0x2500, a2 := call.start, a3 := call.stop, a4 := 0x6000, a5 := 4 }
 
 def machine (call : Call) : Machine :=
   sync base (Model.frame image (contents call)) (initial call)
 
 private theorem dataFree (index : Nat) (above : 0xc00 ≤ index) : image.word index = none := by
   unfold image
-  simp only [not_lt.mpr (show 0x482 ≤ index by omega), if_false]
+  simp only [not_lt.mpr (show 0x482 ≤ index by omega), if_false,
+    if_neg (show index ≠ 0x940 by omega), if_neg (show index ≠ 0x941 by omega)]
   exact Model.tableWordOutside _ _ (Or.inr (by rw [insertLength]; omega))
 
 private theorem modelImages {call : Call} {state : Machine}
@@ -59,17 +62,21 @@ private theorem modelImages {call : Call} {state : Machine}
       (by decide) (by decide) ?_ ?_⟩
   · intro index inside byte small
     rw [insertLength] at inside
-    simp only [image, List.mem_range'_1]
+    simp only [image, List.mem_append, List.mem_range'_1]
+    apply Or.inl
     omega
   · intro index inside
     have bound := inside
     rw [insertLength] at bound
     unfold image
-    simp only [not_lt.mpr (show 0x482 ≤ 0x1208 / 4 + index by omega), if_false]
+    simp only [not_lt.mpr (show 0x482 ≤ 0x1208 / 4 + index by omega), if_false,
+      if_neg (show 0x1208 / 4 + index ≠ 0x940 by omega),
+      if_neg (show 0x1208 / 4 + index ≠ 0x941 by omega)]
     exact Model.tableWordAt _ _ inside
   · intro index inside byte small
     rw [SortedMap.Search.instructionsLength] at inside
-    simp only [image, List.mem_range'_1]
+    simp only [image, List.mem_append, List.mem_range'_1]
+    apply Or.inl
     omega
   · intro index inside
     have bound := inside
@@ -86,12 +93,11 @@ private theorem above {byte : Nat} (high : 0x2800 ≤ byte) : Empty.OutsideFrame
 private theorem below {byte : Nat} (low : byte < 0x2800 - 48) : Empty.OutsideFrame sp byte :=
   Or.inl low
 
-theorem modelPremises {length : Word} {old : Nat → Pair} {start stop : Word}
-    (small : length.toNat ≤ 1000) (nonempty : start.toNat ≤ stop.toNat)
-    (found : 0 < (modelCall length old start stop).rank)
-    (covered : stop.toNat ≤ (modelCall length old start stop).predecessor.value.toNat) :
-    ContainedPremises base Model.returnTo (machine (modelCall length old start stop))
-      (initial (modelCall length old start stop)) (modelCall length old start stop) := by
+theorem modelFrameMap {length : Word} {old : Nat → Pair} {start stop : Word}
+    (small : length.toNat ≤ 1000) :
+    let call := modelCall length old start stop
+    Empty.Frame base Model.returnTo (machine call) (initial call) ∧
+      Map base (machine call) (initial call).sp call := by
   let call := modelCall length old start stop
   have modeled : Model.Modeled image (contents call) (machine call) := Model.syncModeled _ base _
   have mode : MachineMode (machine call) Model.returnTo :=
@@ -135,6 +141,15 @@ theorem modelPremises {length : Word} {old : Nat → Pair} {start stop : Word}
         change 0x4000 + 8 * index ≤ byte at low; omega),
       fun index inside => (Model.elementReadable modeled (scaled index inside)).2,
       fun index inside => (buffer.live index inside).2, by change 0 < (0x4000#32).toNat; decide⟩
+  exact ⟨frame, map⟩
+
+theorem modelPremises {length : Word} {old : Nat → Pair} {start stop : Word}
+    (small : length.toNat ≤ 1000) (nonempty : start.toNat ≤ stop.toNat)
+    (found : 0 < (modelCall length old start stop).rank)
+    (covered : stop.toNat ≤ (modelCall length old start stop).predecessor.value.toNat) :
+    ContainedPremises base Model.returnTo (machine (modelCall length old start stop))
+      (initial (modelCall length old start stop)) (modelCall length old start stop) := by
+  obtain ⟨frame, map⟩ := modelFrameMap (old := old) (start := start) (stop := stop) small
   exact ⟨frame, ⟨rfl, rfl, rfl⟩, map, nonempty, found, covered⟩
 
 /-! ## One machine per covered case -/

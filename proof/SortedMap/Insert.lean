@@ -449,7 +449,9 @@ def finalMemory (call : Call) (frame after : ByteMemory) : Prop :=
 
 set_option maxRecDepth 4096 in
 set_option maxHeartbeats 1000000 in
-theorem sortedMapInsertSailCorrect (base returnAddress : Word) (original : Machine) (call : Call)
+/-- The linked insertion run as a return snapshot for composing callers.
+The snapshot retains the status and the restored stack and saved registers. -/
+theorem sortedMapInsertSailRun (base returnAddress : Word) (original : Machine) (call : Call)
     (initial : Snapshot)
     (entry : original = sync base original { initial with pc := 0 })
     (headerArgument : initial.a0 = call.header)
@@ -461,12 +463,12 @@ theorem sortedMapInsertSailCorrect (base returnAddress : Word) (original : Machi
     (keys : call.lengthValid → 0 < call.length.toNat → Search.Keys original call.search)
     (replace : call.replaces → Replacement base original call)
     (buffer : ¬ call.replaces → call.vector.valid → PairInsert.Buffer (vectorBase base) original call.vector) :
-    ∃ final, run call.count original = some final ∧
-      final.regs.get? Register.PC = some returnAddress ∧
-      final.regs.get? Register.x10 = some call.status ∧
-      finalMemory call (pushed original.mem initial.sp initial) final.mem ∧
-      (∀ register ∉ [Register.PC, .nextPC, .x5, .x6, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
-        final.regs.get? register = original.regs.get? register) := by
+    ∃ (state : Snapshot) (memory : ByteMemory),
+      run call.count original = some (sync base { original with mem := memory } state) ∧
+      state.pc = returnAddress - base ∧ state.a0 = call.status ∧
+      state.ra = initial.ra ∧ state.sp = initial.sp ∧ state.s0 = initial.s0 ∧
+      state.s1 = initial.s1 ∧ state.s2 = initial.s2 ∧ state.s3 = initial.s3 ∧
+      finalMemory call (pushed original.mem initial.sp initial) memory := by
   let memory := pushed original.mem initial.sp initial
   have machine := environment.mode.toMachineState
   have fits := stack.fits
@@ -507,19 +509,16 @@ theorem sortedMapInsertSailCorrect (base returnAddress : Word) (original : Machi
       (ran : run count (sync base original { initial with pc := 0 }) =
         some (sync base { original with mem := after } state)) (total : count + 7 = call.count)
       (memoryResult : finalMemory call memory after) :
-      ∃ final, run call.count original = some final ∧
-        final.regs.get? Register.PC = some returnAddress ∧
-        final.regs.get? Register.x10 = some call.status ∧ finalMemory call memory final.mem ∧
-        (∀ register ∉ [Register.PC, .nextPC, .x5, .x6, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
-          final.regs.get? register = original.regs.get? register) := by
+      ∃ (state : Snapshot) (final : ByteMemory),
+        run call.count original = some (sync base { original with mem := final } state) ∧
+        state.pc = returnAddress - base ∧ state.a0 = call.status ∧
+        state.ra = initial.ra ∧ state.sp = initial.sp ∧ state.s0 = initial.s0 ∧
+        state.s1 = initial.s1 ∧ state.s2 = initial.s2 ∧ state.s3 = initial.s3 ∧
+        finalMemory call memory final := by
     let done := { restored initial state with pc := returnAddress - base }
-    refine ⟨sync base { original with mem := after } done, ?_,
-      pcReadReturned base returnAddress _ done rfl, ?_, ?_,
-      frameRegisters base original initial entry after done rfl rfl rfl rfl rfl rfl⟩
-    · rw [← total, runAdd, (congrArg (run count) entry).trans ran, Option.bind_some,
-        epilogue environment initial stack returnArgument state pc lowered after imageAfter savedWord]
-    · rw [readA0]; exact congrArg some status
-    · rw [syncMem]; exact memoryResult
+    refine ⟨done, after, ?_, rfl, status, rfl, rfl, rfl, rfl, rfl, rfl, memoryResult⟩
+    rw [← total, runAdd, (congrArg (run count) entry).trans ran, Option.bind_some,
+      epilogue environment initial stack returnArgument state pc lowered after imageAfter savedWord]
   by_cases lengthValid : call.lengthValid
   case neg =>
     have notReplaces : ¬ call.replaces := fun replaces => lengthValid replaces.1
@@ -572,11 +571,12 @@ theorem sortedMapInsertSailCorrect (base returnAddress : Word) (original : Machi
           state.pc = 0x84#32 ∧ state.s0 = call.value.value ∧ state.s1 = call.value.key ∧
           state.s2 = call.header ∧ state.a1 = call.vector.index ∧
           state.sp = frameBase initial.sp ∧ count + 11 + call.vector.count = call.count) →
-      ∃ final, run call.count original = some final ∧
-        final.regs.get? Register.PC = some returnAddress ∧
-        final.regs.get? Register.x10 = some call.status ∧ finalMemory call memory final.mem ∧
-        (∀ register ∉ [Register.PC, .nextPC, .x5, .x6, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
-          final.regs.get? register = original.regs.get? register) := by
+      ∃ (state : Snapshot) (after : ByteMemory),
+        run call.count original = some (sync base { original with mem := after } state) ∧
+        state.pc = returnAddress - base ∧ state.a0 = call.status ∧
+        state.ra = initial.ra ∧ state.sp = initial.sp ∧ state.s0 = initial.s0 ∧
+        state.s1 = initial.s1 ∧ state.s2 = initial.s2 ∧ state.s3 = initial.s3 ∧
+        finalMemory call memory after := by
     intro replaces takesVector
     obtain ⟨count, state, before, pc, value, key, headerAddress, index, lowered, total⟩ := takesVector
     obtain ⟨ra, s0, s1, s2, s3⟩ := savedWords original.mem initial fits
@@ -683,32 +683,34 @@ theorem sortedMapInsertSailCorrect (base returnAddress : Word) (original : Machi
       PairInsert.rawVecPairInsertSailRun (vectorBase base) returnAddress entered call.vector
         (vectorEntry jumped) routineEntered rfl index rfl rfl
         (PairInsert.Environment.ofMachine mode vectorImage) vectorHeader vectorBuffer
-    refine ⟨_, ?_, pcReadReturned (vectorBase base) returnAddress { entered with mem := vectorMemory }
-      endState endPc, ?_, ?_, fun register outside => ?_⟩
+    let merged : Snapshot :=
+      { jumped with
+        pc := returnAddress - base, t0 := endState.t0, t1 := endState.t1,
+        a0 := endState.a0, a1 := endState.a1, a2 := endState.a2, a3 := endState.a3,
+        a4 := endState.a4, a5 := endState.a5, a6 := endState.a6, a7 := endState.a7 }
+    have resynced : sync (vectorBase base) { entered with mem := vectorMemory } endState =
+        sync base { original with mem := vectorMemory } merged := by
+      have withMem := syncWithMem base { original with mem := memory } jumped vectorMemory
+      have inside := syncInside (frame := { original with mem := vectorMemory }) base (vectorBase base)
+        jumped merged endState vectorInside (fun index _ => by fin_cases index <;> rfl) (by
+          change base + (returnAddress - base) = vectorBase base + endState.pc
+          rw [endPc, BitVec.add_comm base, BitVec.sub_add_cancel, BitVec.add_comm (vectorBase base),
+            BitVec.sub_add_cancel])
+      change sync (vectorBase base) { sync base { original with mem := memory } jumped with
+        mem := vectorMemory } endState = _
+      rw [withMem]
+      exact inside
+    refine ⟨merged, vectorMemory, ?_, rfl, ?_, rfl, rfl, rfl, rfl, rfl, rfl, ?_⟩
     · rw [← total, runAdd, runAdd, (congrArg (run _) entry).trans before, Option.bind_some, toJump,
-        Option.bind_some]
+        Option.bind_some, ← resynced]
       exact vectorRan
-    · have read : (sync (vectorBase base) { entered with mem := vectorMemory } endState).regs.get?
-          Register.x10 = some endState.a0 := readReg_succ.mp (syncRead endState (index := 10) (by decide))
-      rw [read, vectorStatus, Call.status, if_neg (not_not_intro lengthValid), if_neg replaces]
-    · rw [syncMem]
-      refine ⟨fun replaced => (replaces replaced).elim, fun _ invalid => ?_, fun _ valid => ?_⟩
+    · change endState.a0 = call.status
+      rw [vectorStatus, Call.status, if_neg (not_not_intro lengthValid), if_neg replaces]
+    · refine ⟨fun replaced => (replaces replaced).elim, fun _ invalid => ?_, fun _ valid => ?_⟩
       · exact (rejected (invalid.resolve_right (not_not_intro lengthValid))).trans enteredMem
       · obtain ⟨data, length, capacity, entries, unchanged⟩ := accepted valid
         rw [enteredMem] at unchanged
         exact ⟨data, length, capacity, entries, unchanged⟩
-    · simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at outside
-      obtain ⟨pc, next, t0, t1, a0, a1, a2, a3, a4, a5, a6, a7⟩ := outside
-      rw [syncFrame endState register pc next (by
-        intro trackedIndex member
-        change trackedIndex ∈ ([5, 6, 10, 11, 12, 13, 14, 15, 16, 17] : List (Fin 32)) at member
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-        rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-        exacts [Ne.symm t0, Ne.symm t1, Ne.symm a0, Ne.symm a1, Ne.symm a2, Ne.symm a3,
-          Ne.symm a4, Ne.symm a5, Ne.symm a6, Ne.symm a7])]
-      exact frameRegisters base original initial entry memory jumped rfl rfl rfl rfl rfl rfl
-        register (by simp only [List.mem_cons, List.not_mem_nil, or_false, not_or]
-                     exact ⟨pc, next, t0, t1, a0, a1, a2, a3, a4, a5, a6, a7⟩)
   by_cases inside : call.position < call.length.toNat
   case neg =>
     have notReplaces : ¬ call.replaces := fun replaces => inside replaces.2.1
@@ -887,6 +889,32 @@ theorem sortedMapInsertSailCorrect (base returnAddress : Word) (original : Machi
   refine runStep keyStep (runStep valueStep ?_)
   exact runStep (step7c machine replacementImage statusLoad rfl)
     (runStep (step80 machine replacementImage _ rfl) rfl)
+
+theorem sortedMapInsertSailCorrect (base returnAddress : Word) (original : Machine) (call : Call)
+    (initial : Snapshot)
+    (entry : original = sync base original { initial with pc := 0 })
+    (headerArgument : initial.a0 = call.header)
+    (keyArgument : initial.a1 = call.value.key)
+    (valueArgument : initial.a2 = call.value.value)
+    (environment : Environment base returnAddress original)
+    (header : RawVec.Insert.Header original call.vector)
+    (stack : Stack base original call initial.sp)
+    (keys : call.lengthValid → 0 < call.length.toNat → Search.Keys original call.search)
+    (replace : call.replaces → Replacement base original call)
+    (buffer : ¬ call.replaces → call.vector.valid → PairInsert.Buffer (vectorBase base) original call.vector) :
+    ∃ final, run call.count original = some final ∧
+      final.regs.get? Register.PC = some returnAddress ∧
+      final.regs.get? Register.x10 = some call.status ∧
+      finalMemory call (pushed original.mem initial.sp initial) final.mem ∧
+      (∀ register ∉ [Register.PC, .nextPC, .x5, .x6, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
+        final.regs.get? register = original.regs.get? register) := by
+  obtain ⟨state, memory, ran, pc, status, ra, sp, s0, s1, s2, s3, result⟩ :=
+    sortedMapInsertSailRun base returnAddress original call initial entry headerArgument keyArgument
+      valueArgument environment header stack keys replace buffer
+  refine ⟨_, ran, pcReadReturned base returnAddress _ state pc, ?_, ?_,
+    frameRegisters base original initial entry memory state ra sp s0 s1 s2 s3⟩
+  · rw [readA0]; exact congrArg some status
+  · rw [syncMem]; exact result
 
 /-! ## Against the mathematical map -/
 
