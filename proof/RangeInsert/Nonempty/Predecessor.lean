@@ -198,6 +198,7 @@ structure Inspected (initial : Snapshot) (call : Call) (state : Snapshot) : Prop
   cached : state.s0 = initial.a1
   mapHeader : state.s5 = initial.a0
   stop : state.s1 = call.stop
+  start : state.s2 = call.start
   scratchCapacity : state.s3 = initial.a5
   scratchData : state.s4 = initial.a4
   predecessorEnd : state.a2 = call.predecessor.value
@@ -318,7 +319,7 @@ theorem inspectPredecessor {base returnAddress : Word} {original : Machine} {ini
     refine runStep (step7c machine image _ rfl) ?_
     refine runStep (step80 machine image _ rfl) ?_
     rfl
-  · refine ⟨rfl, rfl, arguments.header, rfl, rfl, arguments.stop, rfl, rfl, rfl, ?_, ?_, ?_⟩
+  · refine ⟨rfl, rfl, arguments.header, rfl, rfl, arguments.stop, arguments.start, rfl, rfl, rfl, ?_, ?_, ?_⟩
     · change offset + 0xfffffff8#32 = call.search.wordSlot (call.rank - 1)
       dsimp only [offset]
       rw [rankWord, dataAddress, keyAddress, ← indexNext, Nat.add_sub_cancel]
