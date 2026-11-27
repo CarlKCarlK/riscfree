@@ -388,4 +388,57 @@ theorem drain {base returnAddress : Word} {original : Machine} {initial : Snapsh
       rw [keptAfter byte frameOutside lengthOutside slotsOutside]
       exact invariant.others byte outside
 
+-- `slli s2, s2, 2` on the key count.
+theorem countShift {count : Nat} (fits : 4 * count < 2 ^ 32) :
+    BitVec.ofNat 32 count <<< (2 : Nat) = BitVec.ofNat 32 (4 * count) := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.shiftLeft_eq,
+    Nat.mod_eq_of_lt (show count < 2 ^ 32 by omega)]
+  change count * 4 % 2 ^ 32 = 4 * count % 2 ^ 32
+  rw [Nat.mul_comm]
+
+theorem Scratch.wordSlotZero (scratch : Scratch) : scratch.wordSlot 0 = scratch.data := by
+  unfold Scratch.wordSlot Scratch.slot
+  rw [Nat.mul_zero, Nat.add_zero, BitVec.ofNat_toNat, BitVec.setWidth_eq]
+
+/-- The removal loop's entry from `+0x154`: no collected keys go straight to
+the epilogue in two instructions; otherwise four instructions reach the loop
+at `+0x164`. -/
+theorem drainEntry {base : Word} {original : Machine} {memory : ByteMemory}
+    {scratch : Scratch} {collected : Nat}
+    (machine : MachineState original)
+    (image : CodeImage DeleteTable.instructions base { original with mem := memory })
+    (state : Snapshot) (atStart : state.pc = 0x154#32)
+    (lengthReadable : Readable original (state.s1 + 0x4#32))
+    (lengthWord : WordAt memory (state.s1 + 0x4#32).toNat (BitVec.ofNat 32 collected))
+    (dataReadable : Readable original state.s1)
+    (dataWord : WordAt memory state.s1.toNat scratch.data) (fits : 4 * collected < 2 ^ 32) :
+    (collected = 0 → run 2 (sync base { original with mem := memory } state) =
+      some (sync base { original with mem := memory }
+        { state with pc := 0x184#32, s2 := BitVec.ofNat 32 collected })) ∧
+    (0 < collected → run 4 (sync base { original with mem := memory } state) =
+      some (sync base { original with mem := memory }
+        { state with
+          pc := 0x164#32, s1 := scratch.wordSlot 0,
+          s2 := BitVec.ofNat 32 (4 * (collected - 0)) })) := by
+  constructor
+  · intro none
+    refine runStep (step154 machine image _ atStart _ lengthReadable lengthWord) ?_
+    refine runStep (step158 machine image _ rfl) ?_
+    rw [if_pos (by rw [none])]
+    rfl
+  · intro some
+    have nonzero : BitVec.ofNat 32 collected ≠ 0#32 := by
+      intro zero
+      have := (remainingZero (count := collected) fits).mp (by
+        rw [← countShift fits, zero]; rfl)
+      omega
+    refine runStep (step154 machine image _ atStart _ lengthReadable lengthWord) ?_
+    refine runStep (step158 machine image _ rfl) ?_
+    rw [if_neg nonzero]
+    refine runStep (step15c machine image _ rfl _ dataReadable dataWord) ?_
+    refine runStep (step160 machine image _ rfl) ?_
+    rw [countShift fits, Nat.sub_zero, scratch.wordSlotZero]
+    rfl
+
 end Riscfree.RangeInsert.DeleteExtra
