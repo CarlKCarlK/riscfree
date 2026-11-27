@@ -104,3 +104,13 @@ Measured on the 32-thread development machine with everything built:
 - Consider a separate fast `just check` for proof development if `just prove`
   becomes slow again.
 - Speed up the decoder normal form (949 s). It runs only on rare rebuilds.
+
+### Compositional stack-space bounds
+
+- Prove the maximum additional stack space required by each verified machine-code routine, as a constant or a function of its inputs.
+- Compose stack-space bounds across ordinary calls, sequential calls, and tail calls without reproving callees.
+- Prove that execution never accesses stack memory outside the permitted region and restores the stack pointer on return.
+- Establish a sufficient stack-space bound for the complete RangeSetBlaze insertion algorithm.
+- Prefer statically proved bounds over runtime stack-overflow checks. Document insufficient stack space as outside the correctness theorem's premises.
+
+The current sorted-map removal routine requires 16 additional bytes, independent of map size.
