@@ -1,3 +1,11 @@
+/// A C-compatible eight-byte element: two words, passed in two registers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub struct Pair {
+    pub key: u32,
+    pub value: u32,
+}
+
 /// Caller-owned vector storage with a C-compatible header.
 #[repr(C)]
 pub struct RawVec<T> {

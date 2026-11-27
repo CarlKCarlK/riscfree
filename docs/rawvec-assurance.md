@@ -97,8 +97,9 @@ derives the instruction fetch from Sail's semantics (see
 The `entry` premise, `original = sync base original ...`, holds because
 synchronizing a synchronized state again changes nothing (`syncSync`).
 
-`lake build` checks these proofs, and `leanchecker` replays them through Lean's
-kernel (`just kernel-check`). They use no axioms beyond the theorem's own.
+`lake build` checks these proofs, and `just kernel-check` replays them through
+Lean's kernel with `leanchecker`'s replay function. They use no axioms beyond
+the theorem's own.
 
 ## The platform premise
 
@@ -142,6 +143,30 @@ remain, and for real hardware the new premises are the natural ones to check.
 popcount proofs could drop their code-mapping premise too. They have not been
 changed.
 
+## The pair routine
+
+`rawVecPairInsertSailCorrect` and `rawVecPairInsertSailCorrectInMachineMode`
+(in [proof/RawVec/PairInsert.lean](../proof/RawVec/PairInsert.lean)) make the
+same claims for `raw_vec_pair_insert`. They reach the same 72 axioms, and
+`just axiom-paths` checks the first one's executed path against the same
+seven expected axioms. Their premises are the same generic `Header` and
+`Buffer` structures from [proof/RawVec/Insert.lean](../proof/RawVec/Insert.lean),
+instantiated for eight-byte elements: both words of each shifted pair must be
+readable, both words of each written slot writable, and each slot's eight
+bytes must miss the header and the routine's 132 code bytes.
+[proof/RawVec/PairInsert/Nonvacuity.lean](../proof/RawVec/PairInsert/Nonvacuity.lean)
+shows the premises of both theorems hold on the five paths (15, 35, 5, 6, and
+7 instructions).
+
+The `u32` theorems now instantiate the same generic definitions.
+[proof/RawVec/Compatibility.lean](../proof/RawVec/Compatibility.lean) keeps the
+original `u32` definitions and statements verbatim and derives each original
+theorem, including both shim theorems, from the current one. So the
+refactoring added no premise and weakened no conclusion.
+
+The demo calls the pair routine through `call_raw_vec_pair_insert`, a copy of
+the `u32` shim. That shim is not proved.
+
 ## Calling shim
 
 The Rust demo calls `call_raw_vec_u32_insert`, the seven-instruction shim in
@@ -152,11 +177,13 @@ shim and the routine together.
 ### What is checked
 
 - The table holds the shim's seven linked words. `call raw_vec_u32_insert`
-  assembles to `auipc ra, 0x1` and `jalr ra, -0x2a8(ra)`. Their immediates
-  depend on where the linker puts the two functions. `just prove` compares the
+  assembles to `auipc ra, 0x0` and `jalr ra, 0xb4(ra)`. Their immediates
+  depend on where the linker puts the two functions. `build.rs` assembles the
+  shims into their own object and links it directly before the routines'
+  object, so only those two objects determine the offset. `just prove` compares the
   shim's 28 bytes and the routine's 120 bytes with the tables. It also checks
-  that the routine starts exactly `routineOffset` (0xd60) bytes after the shim.
-  If a firmware change moves either function, the check fails, and the table
+  that the routine starts exactly `routineOffset` (0xbc) bytes after the shim.
+  If a change to the shims or routines moves either function, the check fails, and the table
   and `routineOffset` must be updated together.
 - The shim's steps use the same `Fetch.lean` derivation as the routine, so
   neither code image is assumed to be fetchable. `ShimEnvironment` requires
@@ -193,7 +220,7 @@ caller's return address, with the same register and memory guarantees.
 The header and buffer premises are the routine's, stated for the original
 machine. The proof transfers them across the shim's stack store.
 `ShimHypotheses` in `Nonvacuity.lean` bundles every premise. The model places
-the shim at `0x2a0`, the routine at `0x1000`, and `sp` at `0x5000`, and
+the shim at `0xf44`, the routine at `0x1000`, and `sp` at `0x5000`, and
 `shimAppendRuns`, ..., `shimFullRuns` apply the full theorem on each of the
 five paths.
 
@@ -204,8 +231,8 @@ The pinned Sail configuration sets `hartSupports Ext_Zca` to `false`.
 target with bit 1 set, whatever `misa.C` says. The Rust caller is compiled for
 `riscv32imc`, so its return address can have bit 1 set. The ESP32-C3 implements
 the C extension and returns there correctly. In the linked demo, the five calls
-return to `0x4201362c`, `0x4201363e`, `0x42013650`, `0x42013662`, and
-`0x420136a2`. Three of them have bit 1 set. For those three, the final `ret` is
+return to `0x42013afe`, `0x42013b10`, `0x42013b22`, `0x42013b34`, and
+`0x42013b76`. Three of them have bit 1 set. For those three, the final `ret` is
 the only instruction outside the formal guarantee. Covering it would need a Sail
 configuration with Zca, which in turn means verifying the compressed caller.
 

@@ -1,13 +1,9 @@
-import Riscfree.RV32.Decode
-import Riscfree.RV32.Store
-import Riscfree.RV32.Fetch
+import RawVec.Access
 
 namespace Riscfree.RawVec
 
 open LeanRV32D LeanRV32D.Functions RV32IM
 open Riscfree.RV32
-
-abbrev Word := BitVec 32
 
 def instructions : List (Word × instruction) :=
   [ (0x00452683, .LOAD (4, reg 10, reg 13, false, 4))
@@ -79,39 +75,15 @@ instance : RegisterView Snapshot where
 
 @[simp] theorem viewPc (state : Snapshot) : RegisterView.pc state = state.pc := rfl
 
--- The memory system maps these executable bytes independently of data writes.
-def CodeAgrees (base : Word) (original memory : ByteMemory) : Prop :=
-  ∀ byte, base.toNat ≤ byte → byte < base.toNat + 120 →
-    memory[byte]? = original[byte]?
+abbrev CodeAgrees : Word → ByteMemory → ByteMemory → Prop := CodeAgreesFor 120
 
-def Mapped (frame : Machine) (address : Word) (permission : PMA_Region → Prop) : Prop :=
-  address.toNat % 4 = 0 ∧ ∃ regions region,
-    Sail.readReg Register.pma_regions frame = .ok regions frame ∧
-    matching_pma regions (.Physaddr (address.setWidth 34)) 4 = some region ∧ permission region
+abbrev Environment (base returnAddress : Word) (original : Machine) : Prop :=
+  EnvironmentFor Snapshot instructions 120 base returnAddress original
 
-abbrev Readable (frame : Machine) (address : Word) :=
-  Mapped frame address (fun region => region.attributes.readable = true)
-
-abbrev Writable (frame : Machine) (address : Word) :=
-  Mapped frame address (fun region => region.attributes.writable = true)
-
-structure Environment (base returnAddress : Word) (original : Machine) : Prop where
-  codeFits : base.toNat + 120 ≤ 2 ^ 32
-  platform : ∀ memory, CodeAgrees base original.mem memory →
-    Platform Snapshot instructions base { original with mem := memory } [] returnAddress (fun _ => 0)
-
--- In machine mode, Sail's fetch reads the code bytes from executable memory,
--- so the code mapping for every memory that keeps those bytes follows from the
--- original machine. No RAM words are needed: the routine's data accesses
--- carry their own `Readable` and `Writable` premises.
 theorem Environment.ofMachine {base returnAddress : Word} {original : Machine}
     (mode : MachineMode original returnAddress) (image : CodeImage instructions base original) :
-    Environment base returnAddress original where
-  codeFits := image.fits
-  platform memory agrees :=
-    Platform.ofCodeImage (mode.withMemory memory)
-      (image.withMemory memory fun byte low high => agrees byte low high)
-      (fun _ inside => nomatch inside)
+    Environment base returnAddress original :=
+  EnvironmentFor.ofMachine mode image rfl
 
 section Instructions
 
@@ -128,78 +100,6 @@ private theorem fetchDecode
   platform.fetchAndDecode
     (fun state => linkedWordsDecode _ (platform.privilegeAt state) (platform.landingPadAt state))
     (by decide) state index pc
-
-set_option maxHeartbeats 1500000 in
-private theorem Platform.loadWord
-    (platform : Platform Snapshot instructions base {original with mem := memory} [] returnAddress
-      (fun _ => 0)) (state : Snapshot) (next offset address value : Word)
-    (permission : Readable original address) (word : WordAt memory address.toNat value) :
-    let entered := write_reg_state (sync base {original with mem := memory} state) Register.nextPC next
-    vmem_read_addr (.Virtaddr address) offset 4 (.Load .Data) false false false entered =
-      .ok (.Ok value) entered := by
-  dsimp only
-  obtain ⟨aligned, regions, region, readRegions, matched, readable⟩ := permission
-  obtain ⟨status, statusRead, mprv⟩ := platform.status
-  have combined : BitVec.append (BitVec.append (BitVec.append (value.extractLsb' 24 8)
-      (value.extractLsb' 16 8)) (value.extractLsb' 8 8)) (value.extractLsb' 0 8) = value := by
-    have high := BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (x := value) (start₁ := 16)
-      (start₂ := 24) (len₁ := 8) (len₂ := 8) rfl
-    have middle := BitVec.extractLsb'_append_extractLsb'_eq_extractLsb' (x := value) (start₁ := 8)
-      (start₂ := 16) (len₁ := 8) (len₂ := 16) rfl
-    exact (congrArg (fun first => BitVec.append (BitVec.append first (value.extractLsb' 8 8))
-      (value.extractLsb' 0 8)) high).trans
-        ((congrArg (fun first => BitVec.append first (value.extractLsb' 0 8)) middle).trans
-          (BitVec.extractLsb'_append_extractLsb' (w := 24) (len := 8) (x := value)))
-  have regionsReg : original.regs.get? Register.pma_regions = some regions :=
-    readReg_succ.mp readRegions
-  refine (readAlignedRamWord _ address offset region regions status
-    (value.extractLsb' 0 8) (value.extractLsb' 8 8) (value.extractLsb' 16 8)
-    (value.extractLsb' 24 8) ?_ ?_ mprv ?_
-    matched readable ?_ aligned ?_ ?_ ?_ ?_).trans ?_
-  · exact readReg_of_write_other_reg_state (platform.privilegeAt state) (by decide)
-  · exact readReg_of_write_other_reg_state
-      (Riscfree.RV32.Platform.systemRead state (by decide) (by decide) (by decide) statusRead)
-      (by decide)
-  · exact readReg_of_write_other_reg_state
-      (Riscfree.RV32.Platform.systemRead state (by decide) (by decide) (by decide)
-        (readReg_succ.mpr regionsReg)) (by decide)
-  · exact readReg_of_write_other_reg_state
-      (Riscfree.RV32.Platform.systemRead state (by decide) (by decide) (by decide) platform.htif)
-      (by decide)
-  · exact word 0
-  · exact word 1
-  · exact word 2
-  · exact word 3
-  · exact congrArg (fun word => EStateM.Result.ok (Sail.Ok word)
-      (write_reg_state (sync base {original with mem := memory} state) Register.nextPC next)) combined
-
-private theorem Platform.storeWord
-    (platform : Platform Snapshot instructions base {original with mem := memory} [] returnAddress
-      (fun _ => 0)) (state : Snapshot) (next address value : Word)
-    (permission : Writable original address) :
-    let entered := write_reg_state (sync base {original with mem := memory} state) Register.nextPC next
-    vmem_write_addr (.Virtaddr address) 4 value (.Store .Data) false false false entered =
-      .ok (.Ok true) (setWord entered address.toNat value) := by
-  dsimp only
-  obtain ⟨aligned, regions, region, readRegions, matched, writable⟩ := permission
-  obtain ⟨status, statusRead, mprv⟩ := platform.status
-  have regionsReg : original.regs.get? Register.pma_regions = some regions :=
-    readReg_succ.mp readRegions
-  refine writeAlignedRamWord _ address value region regions status ?_ ?_ mprv ?_
-    matched writable ?_ aligned
-  · exact readReg_of_write_other_reg_state (platform.privilegeAt state) (by decide)
-  · exact readReg_of_write_other_reg_state
-      (Riscfree.RV32.Platform.systemRead state (by decide) (by decide) (by decide) statusRead)
-      (by decide)
-  · exact readReg_of_write_other_reg_state
-      (Riscfree.RV32.Platform.systemRead state (by decide) (by decide) (by decide)
-        (readReg_succ.mpr regionsReg)) (by decide)
-  · exact readReg_of_write_other_reg_state
-      (Riscfree.RV32.Platform.systemRead state (by decide) (by decide) (by decide) platform.htif)
-      (by decide)
-
-private theorem addLiteralZero (value : Word) : value + (0 : Word) = value :=
-  BitVec.add_zero _
 
 theorem step00
     (platform : Platform Snapshot instructions base {original with mem := memory} [] returnAddress

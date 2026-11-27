@@ -31,7 +31,8 @@ Run `just prove` with Elan, Python 3, and GNU binutils installed. It checks
 the Lean proofs, then builds each firmware variant and compares the linked bytes of the
 routine it calls with the instruction words decoded by Sail: all 56 bytes of
 `popcount128`, all 112 bytes of `popcount128_swar`, all 120 bytes of
-`raw_vec_u32_insert`, and all 28 bytes of its calling shim. Lake uses the pinned
+`raw_vec_u32_insert`, all 28 bytes of its calling shim, and all 132 bytes of
+`raw_vec_pair_insert`. Lake uses the pinned
 Pico FV and Sail dependencies in `lake-manifest.json` and Lean 4.28.0-rc1.
 
 `popcount128SailCorrect` and `popcount128SwarSailCorrect` cover every 128-bit
@@ -95,12 +96,25 @@ The files are:
 - `proof/Popcount.lean` and `proof/PopcountSwar.lean`: the application proofs.
   They contain the instruction table, register snapshot, one lemma per linked
   instruction, loop invariants, and the final theorem.
-- `proof/RawVec.lean` and `proof/RawVec/Instructions.lean`: the bounded
-  vector specification, execution proof, and 30-instruction table.
+- `proof/RawVec/Insert.lean`: what every element type shares: the
+  specification of `RawVec<T>::insert`, its memory footprint, the copy-loop
+  invariant, and the final memory. `proof/RawVec/Access.lean` states the memory
+  and code-mapping premises any routine needs.
+- `proof/RawVec.lean` and `proof/RawVec/Instructions.lean`: the `u32`
+  instance: execution proof and 30-instruction table.
+- `proof/RawVec/PairInsert.lean` and `proof/RawVec/PairInsert/Instructions.lean`:
+  the same for `RawVec<Pair>` (eight-byte elements) and its 33 instructions.
+  [docs/rawvec-pair-cost.md](docs/rawvec-pair-cost.md) records what the second
+  instance cost.
+- `proof/RawVec/Compatibility.lean`: the original `u32` definitions and
+  theorem statements, from before the generic refactoring, derived from the
+  current theorems.
 - `proof/RawVec/Shim.lean`: the calling shim's instruction table and its
   composition with the routine.
-- `proof/RawVec/Nonvacuity.lean`: concrete machines that satisfy every
-  premise of the RawVec and shim theorems, one per execution path.
+- `proof/RawVec/Nonvacuity.lean` and `proof/RawVec/PairInsert/Nonvacuity.lean`:
+  concrete machines that satisfy every premise of the RawVec and shim
+  theorems, one per execution path, built on the shared model in
+  `proof/RawVec/Model.lean`.
 - `proof/Riscfree/RV32/`: reusable RV32 infrastructure. It provides register
   snapshots synchronized with the Sail state, a step lemma per opcode built on
   Pico FV's equivalence theorems, the platform premises, the pre-simplified
@@ -118,8 +132,10 @@ On a clean build, `lake build` spends about 15 minutes, once, simplifying the
 decoder. After that, `Popcount` elaborates in about 60 seconds and
 `PopcountSwar` in about 100, compared with 84 and 145 seconds when every word
 went through `simp`. `just kernel-check` optionally replays every module under
-`proof/` through Lean's `leanchecker`. It is not part of `just prove` and takes
-about 6 minutes, one module at a time.
+`proof/` through Lean's kernel, one module at a time, with `leanchecker`'s
+replay function (`scripts/KernelCheck.lean`), 16 modules in parallel by default
+(`just kernel-check 8` for fewer). It is not part of `just prove` and takes
+about 3 minutes.
 
 Each theorem's `entry` premise and `Platform` structure specify the starting
 state and execution conditions. The code mapping supplies the linked halfwords
@@ -143,6 +159,13 @@ index, full capacity. Every rejected call preserves all byte memory.
 The theorem gives 14 instructions for append and `18 + 6m` for insertion
 before a suffix of `m > 0` elements. Invalid length, invalid index, and full
 capacity take 5, 6, and 7 instructions respectively.
+
+`rawVecPairInsertSailCorrect` (and its `InMachineMode` form) states the same
+guarantee for `RawVec<Pair>`, where `Pair` is two `u32` words passed in `a2`
+and `a3`. Each slot's two words hold the result pair (`PairAt`). It takes 15
+instructions for append and `19 + 8m` for insertion before `m > 0` pairs, and
+it also writes `t0` and `t1`. Both theorems instantiate one generic
+specification and loop invariant (`proof/RawVec/Insert.lean`).
 
 The model needs a mapped, word-aligned code image and return address.
 Because the routine stores to memory, `Environment` states the platform
@@ -172,7 +195,10 @@ The ESP32-C3 demo calls the routine through the seven-instruction shim in
 address even when the surrounding firmware uses compressed instructions.
 `proof/RawVec/Shim.lean` proves the shim and the routine together, using the
 shim's linked words. `just prove` checks the shim's 28 linked bytes and that the
-shim's `call` reaches the routine 0xd60 bytes later.
+shim's `call` reaches the routine 0xbc bytes later. `build.rs` assembles the
+shims into their own object and links it directly before the routines, so that
+offset does not change when the demo's own code does. The pair routine has an
+identical shim, which is not proved.
 
 - `callRawVecU32InsertSailAtReturn` covers the first six instructions for any
   caller. After `call.count + 6` instructions, the shim stands at its `ret`
@@ -205,8 +231,8 @@ just build     # Build release firmware
 just run       # Build, flash, and open the serial monitor (bit loop)
 just run swar  # Same, but call the SWAR routine in src/popcount_swar.S
 just run-raw-vec   # Build, verify the bytes, flash, and monitor RawVec
-just prove         # Check all proofs and all three routines' linked bytes
-just kernel-check  # Optional: replay every proof module with leanchecker
+just prove         # Check all proofs and all four routines' linked bytes
+just kernel-check  # Optional: replay every proof module through the kernel
 ```
 
 ## Credits

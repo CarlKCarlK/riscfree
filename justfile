@@ -8,7 +8,7 @@ check:
 build:
     cargo build --locked --release
 
-# Build the ESP32-C3 RawVec demo and check the linked insertion instructions.
+# Build the ESP32-C3 RawVec demo and check the linked insertion instructions of both routines.
 build-raw-vec:
     cargo build --locked --release --example raw_vec --features raw-vec-demo
     python3 research/vec-ffi/linked/check_elf.py target/riscv32imc-unknown-none-elf/release/examples/raw_vec
@@ -29,19 +29,26 @@ prove:
     just verify-elf PopcountSwar
     just build-raw-vec
     just verify-elf RawVec.Shim target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    just verify-elf RawVec.PairInsert target/riscv32imc-unknown-none-elf/release/examples/raw_vec
 
 # Explain each axiom the RawVec and shim theorems reach, and fail unless the executed instructions reach only the expected ones.
 axiom-paths:
     lake env lean --run scripts/AxiomPaths.lean RawVec.Shim Riscfree.RawVec.rawVecU32InsertSailCorrect \
-        Riscfree.RawVec.callRawVecU32InsertSailCorrect --block LeanRV32D.Functions.execute \
-        {{ prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") }} \
-        {{ prepend("--expect ", "propext Quot.sound Classical.choice load_reservation match_reservation plat_term_write sys_enable_experimental_extensions") }}
+        Riscfree.RawVec.callRawVecU32InsertSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RawVec.PairInsert \
+        Riscfree.RawVec.PairInsert.rawVecPairInsertSailCorrect {{ axiom-path-flags }}
 
-# Optional: replay every proof module through Lean's kernel with leanchecker. Not part of `prove`.
-# One module at a time: checking them all in one process runs out of memory.
-kernel-check:
+axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
+    prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \
+    prepend("--expect ", "propext Quot.sound Classical.choice load_reservation match_reservation plat_term_write sys_enable_experimental_extensions")
+
+# Optional: replay every proof module through Lean's kernel with leanchecker's replay. Not part of `prove`.
+# Each replay reports 6–7 GB resident, but that is mostly the memory-mapped Sail `.olean` files, which
+# all jobs share. With 16 jobs, physical memory in use peaked at 21 GB (5 GB idle).
+kernel-check jobs="16":
     lake build
-    for module in $(find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g' | sort); do echo "leanchecker $module"; lake env leanchecker "$module" || exit 1; done
+    find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g' | sort | \
+        xargs -P {{ jobs }} -I {} sh -c '/usr/bin/time -f "replayed {} in %e s, peak %M KB" lake env lean --run scripts/KernelCheck.lean {} > /dev/null'
 
 [private]
 verify-elf module elf="target/riscv32imc-unknown-none-elf/release/riscfree":

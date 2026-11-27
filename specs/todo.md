@@ -11,6 +11,9 @@ application below needs it. When one does, add the general lemma under
 
 ## 1. Insertion into `RawVec<Pair>`
 
+Status: proved (`proof/RawVec/PairInsert.lean`); the cost is recorded in
+`docs/rawvec-pair-cost.md`. The board run of the extended demo is pending.
+
 Verify `raw_vec_pair_insert`, the same generic `RawVec<T>::insert` in
 `research/vec-ffi/linked/raw_vec.rs` with `T = Pair` (two `u32` words, 8 bytes).
 The research report predicts the differences: `<< 3` instead of `<< 2` and one
@@ -65,6 +68,9 @@ Do these only when an application above needs them:
   so the machine-mode theorem provably covers every case the original covers.
 - Cover the shim's final `ret` to a halfword-aligned caller. This needs a Sail
   configuration with Zca and, in turn, a verified compressed caller.
-- Make the shim proof independent of link layout. Today the `auipc`/`jalr`
-  words and `routineOffset` must be updated whenever the demo's layout moves
-  the shim or the routine.
+- Make the shim proof independent of link layout. The shims are now linked
+  next to the routines, so only a change to the shims or routines moves the
+  `auipc`/`jalr` words and `routineOffset`. A proof parameterized by the
+  offset would remove even that update.
+- Prove the pair routine's calling shim, ideally by making `Shim.lean`
+  generic over the routine it calls.
