@@ -106,6 +106,10 @@ axiom-paths:
         Riscfree.RangeInsert.DeleteExtra.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
     lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Extension.Run \
         Riscfree.RangeInsert.Nonempty.ExtensionPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Fresh.Run \
+        Riscfree.RangeInsert.Nonempty.FreshPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Correct \
+        Riscfree.RangeInsert.Nonempty.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \

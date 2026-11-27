@@ -222,7 +222,17 @@ outside the declared writable regions. The adjacent-range machine
 returns `4..=16` and `20..=23` with cached cardinality 17 in 276
 instructions.
 
-The fresh path's sorted-map insertion environment has a checked spare
-slot and nested frame. Composing that call with the helper and the
-final cache addition, and connecting both modifying paths to the
-production mathematical model, remain open.
+The fresh theorem composes sorted-map insertion, the helper, and the
+final cache addition. It uses a spare map slot before deletions. The
+entry point takes 30 or 41 instructions plus upper-bound search to call
+sorted insertion, eight instructions from that call's return to the
+helper, and 20 after the helper returns. The two concrete fresh machines
+return in 215 and 364 instructions with the expected map and count.
+
+`RangeInsert.Nonempty.Premises.run` covers empty, contained, extension,
+and both fresh paths through one entry theorem. It gives the exact
+instruction count, returned ABI state, live entries and cache words,
+and preservation outside the declared writable regions. Concrete
+machines exercise every branch of this theorem. The general correspondence
+of the two modifying results with the imported mathematical model remains
+open.

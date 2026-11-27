@@ -34,19 +34,18 @@ private theorem callerSlots {sp : Word} (fits : 48 ≤ sp.toNat) :
   exact ⟨Empty.frameAddress fits 4#32 (by decide), Empty.frameAddress fits 8#32 (by decide),
     Empty.frameAddress fits 12#32 (by decide), Empty.frameAddress fits 16#32 (by decide)⟩
 
-/-- The three scratch header words installed by the extension prefix. -/
-theorem extensionScratchWords (initial : Empty.Snapshot) (call : Call) (low high : Word)
+/-- The three scratch words written by either caller path. -/
+theorem scratchHeaderWords (initial : Empty.Snapshot)
     (memory : ByteMemory) (fits : 48 ≤ initial.sp.toNat) :
     let base := (Empty.frameBase initial.sp + 8#32).toNat
-    let stored := extensionStored initial call low high memory
+    let sp := Empty.frameBase initial.sp
+    let stored := writeWords memory
+      [(sp + 8#32, initial.a4), (sp + 12#32, 0#32), (sp + 16#32, initial.a5)]
     WordAt stored base initial.a4 ∧ WordAt stored (base + 4) 0#32 ∧
       WordAt stored (base + 8) initial.a5 := by
   let sp := Empty.frameBase initial.sp
   obtain ⟨_, slot8, slot12, slot16⟩ := callerSlots fits
-  let first : List (Word × Word) :=
-    [(initial.a1, extendLow call low), (initial.a1 + 4#32, extendHigh call low high),
-      (call.search.wordSlot (call.rank - 1) + 4#32, call.stop)]
-  have at8 := writeWordsAt memory first [(sp + 12#32, 0#32), (sp + 16#32, initial.a5)]
+  have at8 := writeWordsAt memory [] [(sp + 12#32, 0#32), (sp + 16#32, initial.a5)]
     (sp + 8#32) initial.a4 (by
       intro write member byte inside last
       simp only [List.mem_cons, List.not_mem_nil, or_false] at member
@@ -59,7 +58,7 @@ theorem extensionScratchWords (initial : Empty.Snapshot) (call : Call) (low high
         rw [slot8] at last
         rw [slot16]
         omega)
-  have at12 := writeWordsAt memory (first ++ [(sp + 8#32, initial.a4)]) [(sp + 16#32, initial.a5)]
+  have at12 := writeWordsAt memory [(sp + 8#32, initial.a4)] [(sp + 16#32, initial.a5)]
     (sp + 12#32) 0#32 (by
       intro write member byte inside last
       simp only [List.mem_singleton] at member
@@ -68,13 +67,31 @@ theorem extensionScratchWords (initial : Empty.Snapshot) (call : Call) (low high
       rw [slot12] at last
       rw [slot16]
       omega)
-  have at16 := writeWordsAt memory (first ++ [(sp + 8#32, initial.a4), (sp + 12#32, 0#32)]) []
+  have at16 := writeWordsAt memory [(sp + 8#32, initial.a4), (sp + 12#32, 0#32)] []
     (sp + 16#32) initial.a5 (by simp)
   have joined12 : (sp + 12#32).toNat = (sp + 8#32).toNat + 4 := by rw [slot12, slot8, Nat.add_assoc]
   have joined16 : (sp + 16#32).toNat = (sp + 8#32).toNat + 8 := by rw [slot16, slot8, Nat.add_assoc]
   rw [joined12] at at12
   rw [joined16] at at16
   exact ⟨at8, at12, at16⟩
+
+set_option maxHeartbeats 1000000 in
+theorem extensionScratchWords (initial : Empty.Snapshot) (call : Call) (low high : Word)
+    (memory : ByteMemory) (fits : 48 ≤ initial.sp.toNat) :
+    let base := (Empty.frameBase initial.sp + 8#32).toNat
+    let stored := extensionStored initial call low high memory
+    WordAt stored base initial.a4 ∧ WordAt stored (base + 4) 0#32 ∧
+      WordAt stored (base + 8) initial.a5 := by
+  let sp := Empty.frameBase initial.sp
+  let first : List (Word × Word) :=
+    [(initial.a1, extendLow call low), (initial.a1 + 4#32, extendHigh call low high),
+      (call.search.wordSlot (call.rank - 1) + 4#32, call.stop)]
+  let scratch : List (Word × Word) :=
+    [(sp + 8#32, initial.a4), (sp + 12#32, 0#32), (sp + 16#32, initial.a5)]
+  have decomposition : extensionStored initial call low high memory = writeWords memory (first ++ scratch) := rfl
+  dsimp only
+  rw [decomposition, writeWordsAppend]
+  exact scratchHeaderWords initial (writeWords memory first) fits
 
 theorem pushedMapReference (initial : Empty.Snapshot) (memory : ByteMemory) :
     WordAt (Empty.pushed memory initial) (Empty.frameBase initial.sp + 4#32).toNat initial.a0 := by

@@ -1,5 +1,4 @@
-import RangeInsert.Nonempty.Extension.Run
-import RangeInsert.Nonempty.Fresh.Prefix
+import RangeInsert.Correct
 import RawVec.Model
 
 /-! A machine with every linked image and the shared stack, cache, scratch,
@@ -395,5 +394,74 @@ theorem adjacentReturns :
     modelExtension.run (layout 10 11) adjacentSorted adjacentScratch
   have ⟨lengthWord, entries, low, high, _, _, _, _⟩ := effects
   exact ⟨final, ran, returned, lengthWord, entries 0 (by decide), entries 1 (by decide), low, high⟩
+
+private theorem orderedRanges (start stop : Word) :
+    ∀ index < (call start stop).length.toNat,
+      ((call start stop).old index).key.toNat ≤ ((call start stop).old index).value.toNat := by
+  intro index inside
+  change index < 3 at inside
+  have indices : index = 0 ∨ index = 1 ∨ index = 2 := by omega
+  rcases indices with rfl | rfl | rfl <;> exact of_decide_eq_true rfl
+
+private theorem sortedRanges (start stop : Word) :
+    SortedMap.Sorted (SortedMap.entriesOf (call start stop).old (call start stop).length.toNat) := by
+  unfold SortedMap.Sorted
+  exact of_decide_eq_true rfl
+
+theorem firstRangeReturns :
+    ∃ final, run 215 (machine 1 2) = some final ∧
+      final.regs.get? Register.PC = some Model.returnTo ∧
+      WordAt final.mem 0x3004 4#32 ∧ PairAt final.mem 0x4000 ⟨1, 2⟩ ∧
+      PairAt final.mem 0x4008 ⟨4, 9⟩ ∧ PairAt final.mem 0x4010 ⟨12, 16⟩ ∧
+      PairAt final.mem 0x4018 ⟨20, 23⟩ ∧ WordAt final.mem 0x2500 17#32 ∧
+      WordAt final.mem 0x2504 0#32 := by
+  have premises := modelFresh 1 2 (by decide) (Or.inl (by decide))
+  obtain ⟨final, ran, returned, result, _, _⟩ := premises.run (layout 1 2)
+    (by decide) (sortedRanges 1 2) (orderedRanges 1 2) (by decide)
+  exact ⟨final, ran, returned, result.length, result.entries 0 (by decide),
+    result.entries 1 (by decide), result.entries 2 (by decide), result.entries 3 (by decide),
+    result.cacheLow, result.cacheHigh⟩
+
+theorem strictGapReturns :
+    ∃ final, run 364 (machine 18 19) = some final ∧
+      final.regs.get? Register.PC = some Model.returnTo ∧
+      WordAt final.mem 0x3004 3#32 ∧ PairAt final.mem 0x4000 ⟨4, 9⟩ ∧
+      PairAt final.mem 0x4008 ⟨12, 16⟩ ∧ PairAt final.mem 0x4010 ⟨18, 23⟩ ∧
+      WordAt final.mem 0x2500 17#32 ∧ WordAt final.mem 0x2504 0#32 := by
+  have premises := modelFresh 18 19 (by decide) (Or.inr ⟨by decide, by decide⟩)
+  obtain ⟨final, ran, returned, result, _, _⟩ := premises.run (layout 18 19)
+    (by decide) (sortedRanges 18 19) (orderedRanges 18 19) (by decide)
+  exact ⟨final, ran, returned, result.length, result.entries 0 (by decide),
+    result.entries 1 (by decide), result.entries 2 (by decide), result.cacheLow, result.cacheHigh⟩
+
+private def Runs (start stop : Word) (path : Path) : Prop :=
+  (call start stop).path = path ∧
+    ∃ final, run ((call start stop).result (initial start stop) 4 15 0).count (machine start stop) = some final ∧
+      final.regs.get? Register.PC = some Model.returnTo ∧
+      ((call start stop).result (initial start stop) 4 15 0).inMemory (initial start stop) (call start stop) final.mem
+
+private theorem fromLayout (start stop : Word) (path : Path) (select : (call start stop).path = path)
+    (freshRoom : (call start stop).path = .fresh →
+      ((call start stop).freshHelper 4 (initial start stop) 15 0).acceptCount ≤ (initial start stop).a5.toNat)
+    (extensionRoom : (call start stop).path = .extension →
+      ((call start stop).extensionHelper (initial start stop) 15 0).acceptCount ≤ (initial start stop).a5.toNat) :
+    Runs start stop path := by
+  have premises : Nonempty.Premises base Model.returnTo (machine start stop) (initial start stop)
+      (call start stop) 4 15 0 :=
+    ⟨entry start stop, mode start stop, ⟨rfl, rfl, rfl⟩, layout start stop, sortedRanges start stop,
+      orderedRanges start stop, fun _ => of_decide_eq_true rfl, freshRoom, extensionRoom⟩
+  obtain ⟨final, ran, returned, result, _, _⟩ := premises.run
+  exact ⟨select, final, ran, returned, result⟩
+
+/-- The same top-level theorem applies to a concrete machine on every
+successful branch, including both causes of fresh insertion. -/
+theorem allBranches :
+    Runs 11 10 .empty ∧ Runs 5 7 .contained ∧ Runs 10 11 .extension ∧
+      Runs 1 2 .fresh ∧ Runs 18 19 .fresh :=
+  ⟨fromLayout 11 10 .empty (by decide) (by decide) (by decide),
+    fromLayout 5 7 .contained (by decide) (by decide) (by decide),
+    fromLayout 10 11 .extension (by decide) (by decide) (by decide),
+    fromLayout 1 2 .fresh (by decide) (by decide) (by decide),
+    fromLayout 18 19 .fresh (by decide) (by decide) (by decide)⟩
 
 end Riscfree.RangeInsert.Nonempty.Layout.Nonvacuity
