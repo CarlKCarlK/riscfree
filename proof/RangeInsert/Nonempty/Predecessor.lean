@@ -190,4 +190,143 @@ theorem toPredecessor {base returnAddress : Word} {original : Machine} {initial 
   rw [runAdd, toCall, Option.bind_some]
   exact back
 
+/-- Register facts at the strict-gap branch after a positive-rank lookup. -/
+structure Inspected (initial : Snapshot) (call : Call) (state : Snapshot) : Prop where
+  pc : state.pc = 0x84#32
+  sp : state.sp = frameBase initial.sp
+  header : state.a0 = call.header
+  cached : state.s0 = initial.a1
+  mapHeader : state.s5 = initial.a0
+  stop : state.s1 = call.stop
+  scratchCapacity : state.s3 = initial.a5
+  scratchData : state.s4 = initial.a4
+  predecessorEnd : state.a2 = call.predecessor.value
+  predecessorKeyAddress : state.a1 = call.search.wordSlot (call.rank - 1)
+  predecessorEndAddress : state.a3 = call.search.wordSlot (call.rank - 1) + 4#32
+  gap : state.a4 = (Step.lessWord call.predecessor.value 0xffffffff#32 &&&
+    Step.lessWord (call.predecessor.value + 1#32) call.start)
+
+/-- Inspect the predecessor with a positive upper-bound rank. All writes to
+this point are in the entry frame. -/
+theorem inspectPredecessor {base returnAddress : Word} {original : Machine} {initial : Snapshot}
+    {call : Call} (frame : Frame base returnAddress original initial) (arguments : Arguments initial call)
+    (map : Map base original initial.sp call) (nonempty : call.start.toNat ≤ call.stop.toNat)
+    (found : 0 < call.rank) :
+    ∃ state : Snapshot,
+      run (33 + call.search.count .upper) (sync base original { initial with pc := 0 }) =
+        some (sync base { original with mem := pushed original.mem initial } state) ∧
+      Inspected initial call state := by
+  obtain ⟨endState, toSearch, rankWord⟩ :=
+    toPredecessor frame arguments map nonempty
+  have machine := frame.mode.toMachineState
+  have image := frame.pushedImage
+  have fits := frame.frameFits
+  have rankBound := call.rank_le
+  have lengthSmall := call.length.isLt
+  have keys := map.keys (by omega)
+  obtain ⟨index, indexNext⟩ : ∃ index, index + 1 = call.rank := ⟨call.rank - 1, by omega⟩
+  have inside : index < call.length.toNat := by omega
+  have predecessorAt : call.predecessor = call.old index := by
+    unfold Call.predecessor
+    rw [← indexNext, Nat.add_sub_cancel]
+  have rankNat : (BitVec.ofNat 32 call.rank).toNat = call.rank := by
+    rw [BitVec.toNat_ofNat]
+    exact Nat.mod_eq_of_lt (by omega)
+  have rankNonzero : BitVec.ofNat 32 call.rank ≠ 0#32 := by
+    intro zero
+    have toNat := congrArg BitVec.toNat zero
+    rw [rankNat] at toNat
+    simp only [BitVec.toNat_ofNat, Nat.zero_mod] at toNat
+    omega
+  have slotNext : call.search.wordSlot index + 8#32 = call.search.wordSlot call.rank := by
+    rw [call.search.slotNext index, indexNext]
+  have dataAddress :
+      call.data + BitVec.ofNat 32 call.rank <<< (3 : Nat) = call.search.wordSlot call.rank := by
+    rw [BitVec.add_comm]
+    have shifted := call.search.slotShift (BitVec.ofNat 32 call.rank)
+    rw [rankNat] at shifted
+    exact shifted
+  have keyAddress : call.search.wordSlot call.rank + 0xfffffff8#32 = call.search.wordSlot index := by
+    rw [← slotNext, BitVec.add_assoc, show 8#32 + 0xfffffff8#32 = 0#32 from rfl, BitVec.add_zero]
+  have valueAddress :
+      call.search.wordSlot call.rank + 0xfffffffc#32 = call.search.wordSlot index + 4#32 := by
+    rw [← slotNext, BitVec.add_assoc, show 8#32 + 0xfffffffc#32 = 4#32 from rfl]
+  have slotFits : call.search.slot index + 8 ≤ 2 ^ 32 := by
+    have total := keys.fits
+    unfold SortedMap.Search.Call.slot at total ⊢
+    change call.search.data.toNat + 8 * index + 8 ≤ 2 ^ 32
+    change call.search.data.toNat + 8 * call.length.toNat ≤ 2 ^ 32 at total
+    have scaled : 8 * index + 8 ≤ 8 * call.length.toNat := by omega
+    omega
+  have keyNat : (call.search.wordSlot index).toNat = call.search.slot index :=
+    SortedMap.Search.slotNat keys inside
+  have valueNat : (call.search.wordSlot index + 4#32).toNat = call.search.slot index + 4 := by
+    rw [BitVec.toNat_add, keyNat]
+    exact Nat.mod_eq_of_lt (by change call.search.slot index + 4 < 2 ^ 32; omega)
+  have keyNonnull : call.search.wordSlot index ≠ 0#32 := by
+    intro zero
+    have toNat := congrArg BitVec.toNat zero
+    rw [keyNat] at toNat
+    have positive := map.dataNonnull
+    unfold SortedMap.Search.Call.slot at toNat
+    change call.data.toNat + 8 * index = 0 at toNat
+    omega
+  let offset := call.data + endState.a0 <<< (3 : Nat)
+  let state : Snapshot :=
+    { afterSearch (calling base initial) endState with
+      pc := 0x84, a0 := initial.a0, a1 := offset + 0xfffffff8#32,
+      a2 := call.predecessor.value, a3 := offset + 0xfffffffc#32,
+      a4 := Step.lessWord call.predecessor.value 0xffffffff#32 &&&
+        Step.lessWord (call.predecessor.value + 1#32) initial.a2,
+      a5 := Step.lessWord call.predecessor.value 0xffffffff#32 }
+  refine ⟨state, ?_, ?_⟩
+  · rw [show 33 + call.search.count .upper = (19 + call.search.count .upper) + 14 by omega,
+      runAdd, toSearch, Option.bind_some]
+    refine runStep (branchFound machine image _ rfl (by
+      change endState.a0 ≠ 0#32
+      rw [rankWord]
+      exact rankNonzero)) ?_
+    refine runStep (step50 machine image _ rfl) ?_
+    refine runStep (step54 machine image _ rfl) ?_
+    refine runStep (step58 machine image _ rfl call.data (by
+      change Readable original initial.a0
+      rw [arguments.header]
+      exact keys.dataReadable) (by
+      change WordAt (pushed original.mem initial) initial.a0.toNat call.data
+      rw [arguments.header]
+      exact pushedWord initial fits keys.dataWord fun byte low high =>
+        map.headerOutside byte low (by omega))) ?_
+    refine runStep (step5c machine image _ rfl) ?_
+    refine runStep (step60 machine image _ rfl) ?_
+    refine runStep (step64 machine image _ rfl) ?_
+    refine runStep (step68 machine image _ rfl) ?_
+    refine runStep (branchKeyPointer machine image _ rfl (by
+      change call.data + endState.a0 <<< (3 : Nat) + 0xfffffff8#32 ≠ 0#32
+      rw [rankWord, dataAddress, keyAddress]
+      exact keyNonnull)) ?_
+    refine runStep (step70 machine image _ rfl call.predecessor.value (by
+      change Readable original (call.data + endState.a0 <<< (3 : Nat) + 0xfffffffc#32)
+      rw [rankWord, dataAddress, valueAddress]
+      exact map.valueReadable index inside) (by
+      change WordAt (pushed original.mem initial)
+        (call.data + endState.a0 <<< (3 : Nat) + 0xfffffffc#32).toNat call.predecessor.value
+      rw [rankWord, dataAddress, valueAddress, valueNat, predecessorAt]
+      exact pushedWord initial fits (map.valueWord index inside) fun byte low high =>
+        map.entriesOutside index inside byte (by omega) (by omega))) ?_
+    refine runStep (step74 machine image _ rfl) ?_
+    refine runStep (step78 machine image _ rfl) ?_
+    refine runStep (step7c machine image _ rfl) ?_
+    refine runStep (step80 machine image _ rfl) ?_
+    rfl
+  · refine ⟨rfl, rfl, arguments.header, rfl, rfl, arguments.stop, rfl, rfl, rfl, ?_, ?_, ?_⟩
+    · change offset + 0xfffffff8#32 = call.search.wordSlot (call.rank - 1)
+      dsimp only [offset]
+      rw [rankWord, dataAddress, keyAddress, ← indexNext, Nat.add_sub_cancel]
+    · change offset + 0xfffffffc#32 = call.search.wordSlot (call.rank - 1) + 4#32
+      dsimp only [offset]
+      rw [rankWord, dataAddress, valueAddress, ← indexNext, Nat.add_sub_cancel]
+    · change Step.lessWord call.predecessor.value 0xffffffff#32 &&&
+        Step.lessWord (call.predecessor.value + 1#32) initial.a2 = _
+      rw [arguments.start]
+
 end Riscfree.RangeInsert.Nonempty

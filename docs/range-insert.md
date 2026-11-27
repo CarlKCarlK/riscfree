@@ -171,15 +171,29 @@ decode table, the search theorem, and the empty path's frame lemmas.
   shim. The negative fixtures modify an instruction byte, a linked call
   immediate, and a shim byte.
 
-The contained path is proved. The main remaining proof obligation is to
-compose the fresh-insertion and predecessor-extension paths with the
-verified collection theorems, reusing the shared prefix. This starts in `delete_extra` with a loop invariant relating the concrete
-cursor, accumulated endpoint, two-word cache, and initialized scratch
-prefix. That invariant can transfer to a deletion loop that reads the
-scratch keys in order and composes the sorted-map removal theorem. The
-temporary map can contain touching or overlapping ranges, while its keys
-remain strictly increasing for each collection call. The outer proof then
-composes upper-bound and map insertion with this helper and connects the
-returned entries and count to the abstract union theorem.
-Exact dynamic instruction formulas and composed memory, register, and
-stack guarantees for those two paths remain open.
+`RangeInsert.DeleteExtra.Premises.run` proves the linked deletion helper
+from entry to return. It reuses the proved lower bound, word append, and
+sorted-map removal routines. The scan and removal invariants relate the
+cursor to the initialized deletion-key prefix and the live map entries.
+The result records the final live entries, cache words, scratch prefix,
+restored stack pointer and saved registers, and a memory footprint covering
+the selected end, shifted entries, mutable headers, scratch, and the two
+helper stack frames. The premises require enough scratch capacity for every
+accepted successor. They also keep the cache, temporary header, and
+initialized scratch prefix outside the removal writes.
+
+The helper's exact cost is the entry count (40 or 41 plus lower-bound
+search), 42 or 44 instructions per accepted successor, 1 or 3 for the
+scan exit, 1 or 14 for the extension test and stores, and 14 for return.
+The removal phase adds 2 instructions for an empty key list or 4 plus
+the sum of 8 instructions and the verified sorted-map removal cost per
+key. Concrete machine witnesses exercise a gap without deletions, growth
+followed by a gap, growth followed by end of map, and a maximum endpoint
+with two deletions.
+
+The outer predecessor-extension path shares the checked positive-rank
+prefix with the covered path. Its two-word arithmetic, six stores, and
+call to the helper now have checked instruction runs. The remaining outer
+work composes the call and return and constructs the helper's layout from
+the caller's state. Fresh insertion and the unified mathematical theorem
+for successful machine execution remain open.

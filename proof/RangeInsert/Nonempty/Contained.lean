@@ -57,113 +57,27 @@ theorem runContained {base returnAddress : Word} {original : Machine} {initial :
       run call.containedCount (sync base original { initial with pc := 0 }) =
         some (sync base { original with mem := pushed original.mem initial }
           (restore initial state (returnAddress - base))) := by
-  obtain ⟨endState, toSearch, rankWord⟩ :=
-    toPredecessor premises.toFrame premises.arguments premises.map premises.nonempty
+  obtain ⟨state, inspected, regs⟩ := inspectPredecessor premises.toFrame premises.arguments
+    premises.map premises.nonempty premises.found
   have machine := premises.mode.toMachineState
   have image := premises.toFrame.pushedImage
-  have fits := premises.frameFits
-  have map := premises.map
-  have arguments := premises.arguments
-  have found := premises.found
-  have rankBound := call.rank_le
-  have lengthSmall := call.length.isLt
-  have keys := map.keys (by omega)
-  obtain ⟨index, indexNext⟩ : ∃ index, index + 1 = call.rank := ⟨call.rank - 1, by omega⟩
-  have inside : index < call.length.toNat := by omega
-  have predecessorAt : call.predecessor = call.old index := by
-    unfold Call.predecessor
-    rw [← indexNext, Nat.add_sub_cancel]
-  have rankNat : (BitVec.ofNat 32 call.rank).toNat = call.rank := by
-    rw [BitVec.toNat_ofNat]
-    exact Nat.mod_eq_of_lt (by omega)
-  have rankNonzero : BitVec.ofNat 32 call.rank ≠ 0#32 := by
-    intro zero
-    have toNat := congrArg BitVec.toNat zero
-    rw [rankNat] at toNat
-    simp only [BitVec.toNat_ofNat, Nat.zero_mod] at toNat
-    omega
-  have slotNext : call.search.wordSlot index + 8#32 = call.search.wordSlot call.rank := by
-    rw [call.search.slotNext index, indexNext]
-  have dataAddress :
-      call.data + BitVec.ofNat 32 call.rank <<< (3 : Nat) = call.search.wordSlot call.rank := by
-    rw [BitVec.add_comm]
-    have shifted := call.search.slotShift (BitVec.ofNat 32 call.rank)
-    rw [rankNat] at shifted
-    exact shifted
-  have keyAddress : call.search.wordSlot call.rank + 0xfffffff8#32 = call.search.wordSlot index := by
-    rw [← slotNext, BitVec.add_assoc, show 8#32 + 0xfffffff8#32 = 0#32 from rfl, BitVec.add_zero]
-  have valueAddress :
-      call.search.wordSlot call.rank + 0xfffffffc#32 = call.search.wordSlot index + 4#32 := by
-    rw [← slotNext, BitVec.add_assoc, show 8#32 + 0xfffffffc#32 = 4#32 from rfl]
-  have slotFits : call.search.slot index + 8 ≤ 2 ^ 32 := by
-    have total := keys.fits
-    unfold SortedMap.Search.Call.slot at total ⊢
-    change call.search.data.toNat + 8 * index + 8 ≤ 2 ^ 32
-    change call.search.data.toNat + 8 * call.length.toNat ≤ 2 ^ 32 at total
-    have scaled : 8 * index + 8 ≤ 8 * call.length.toNat := by omega
-    omega
-  have keyNat : (call.search.wordSlot index).toNat = call.search.slot index :=
-    SortedMap.Search.slotNat keys inside
-  have valueNat : (call.search.wordSlot index + 4#32).toNat = call.search.slot index + 4 := by
-    rw [BitVec.toNat_add, keyNat]
-    exact Nat.mod_eq_of_lt (by change call.search.slot index + 4 < 2 ^ 32; omega)
-  have keyNonnull : call.search.wordSlot index ≠ 0#32 := by
-    intro zero
-    have toNat := congrArg BitVec.toNat zero
-    rw [keyNat] at toNat
-    have positive := map.dataNonnull
-    unfold SortedMap.Search.Call.slot at toNat
-    change call.data.toNat + 8 * index = 0 at toNat
-    omega
-  constructor
-  rw [show call.containedCount = (19 + call.search.count .upper) + 25 by
-      unfold Call.containedCount; omega,
-    runAdd, toSearch, Option.bind_some]
-  refine runStep (branchFound machine image _ rfl (by
-    change endState.a0 ≠ 0#32
-    rw [rankWord]
-    exact rankNonzero)) ?_
-  refine runStep (step50 machine image _ rfl) ?_
-  refine runStep (step54 machine image _ rfl) ?_
-  refine runStep (step58 machine image _ rfl call.data (by
-    change Readable original initial.a0
-    rw [arguments.header]
-    exact keys.dataReadable) (by
-    change WordAt (pushed original.mem initial) initial.a0.toNat call.data
-    rw [arguments.header]
-    exact pushedWord initial fits keys.dataWord fun byte low high =>
-      map.headerOutside byte low (by omega))) ?_
-  refine runStep (step5c machine image _ rfl) ?_
-  refine runStep (step60 machine image _ rfl) ?_
-  refine runStep (step64 machine image _ rfl) ?_
-  refine runStep (step68 machine image _ rfl) ?_
-  refine runStep (branchKeyPointer machine image _ rfl (by
-    change call.data + endState.a0 <<< (3 : Nat) + 0xfffffff8#32 ≠ 0#32
-    rw [rankWord, dataAddress, keyAddress]
-    exact keyNonnull)) ?_
-  refine runStep (step70 machine image _ rfl call.predecessor.value (by
-    change Readable original (call.data + endState.a0 <<< (3 : Nat) + 0xfffffffc#32)
-    rw [rankWord, dataAddress, valueAddress]
-    exact map.valueReadable index inside) (by
-    change WordAt (pushed original.mem initial)
-      (call.data + endState.a0 <<< (3 : Nat) + 0xfffffffc#32).toNat call.predecessor.value
-    rw [rankWord, dataAddress, valueAddress, valueNat, predecessorAt]
-    exact pushedWord initial fits (map.valueWord index inside) fun byte low high =>
-      map.entriesOutside index inside byte (by omega) (by omega))) ?_
-  refine runStep (step74 machine image _ rfl) ?_
-  refine runStep (step78 machine image _ rfl) ?_
-  refine runStep (step7c machine image _ rfl) ?_
-  refine runStep (step80 machine image _ rfl) ?_
-  refine runStep (branchTouches machine image _ rfl (by
-    change Step.lessWord call.predecessor.value 0xffffffff#32 &&&
-      Step.lessWord (call.predecessor.value + 1#32) initial.a2 = 0#32
-    rw [arguments.start]
-    exact noStrictGap (Nat.le_trans premises.nonempty premises.covered))) ?_
-  refine runStep (branchCovered machine image _ rfl (by
-    change initial.a3.toNat ≤ call.predecessor.value.toNat
-    rw [arguments.stop]
-    exact premises.covered)) ?_
-  exact premises.toFrame.epilogue _ rfl rfl
+  obtain ⟨exit, returned⟩ : ∃ exit : Snapshot,
+      run 11 (sync base { original with mem := pushed original.mem initial } state) =
+        some (sync base { original with mem := pushed original.mem initial }
+          (restore initial exit (returnAddress - base))) := by
+    have touches : state.a4 = 0#32 := by
+      rw [regs.gap]
+      exact noStrictGap (Nat.le_trans premises.nonempty premises.covered)
+    refine ⟨{ state with pc := 0x124 }, runStep (branchTouches machine image _ regs.pc touches) ?_⟩
+    refine runStep (branchCovered machine image _ rfl (by
+      change state.s1.toNat ≤ state.a2.toNat
+      rw [regs.stop, regs.predecessorEnd]
+      exact premises.covered)) ?_
+    exact premises.toFrame.epilogue _ rfl regs.sp
+  refine ⟨exit, ?_⟩
+  rw [show call.containedCount = (33 + call.search.count .upper) + 11 by
+    unfold Call.containedCount; omega, runAdd, inspected, Option.bind_some]
+  exact returned
 
 /-- A nonempty input covered by its predecessor returns after exactly
 `44 + upper-bound count` instructions. Every register except PC, nextPC,

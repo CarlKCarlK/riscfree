@@ -86,7 +86,7 @@ theorem load (machine : MachineState original) {state : Snapshot} {address value
   exact (machine.withMemory memory).loadWord (base := base) state next offset address value regions
     region (readReg_succ.mpr stored) matched readable aligned contents
 
-private theorem store (machine : MachineState original) {state : Snapshot} {address : Word}
+theorem store (machine : MachineState original) {state : Snapshot} {address : Word}
     (permission : Writable original address) (next value : Word) :
     let entered := write_reg_state (sync base { original with mem := memory } state) Register.nextPC next
     vmem_write_addr (.Virtaddr address) 4 value (.Store .Data) false false false entered =
