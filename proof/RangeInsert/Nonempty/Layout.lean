@@ -36,10 +36,22 @@ def scratchAllocation (scratch : DeleteExtra.Scratch) : Span :=
 def stackAllocation (sp : Word) : Span := ⟨sp.toNat - 112, 112⟩
 def codeSpan (base : Word) (instructionCount : Nat) : Span := ⟨base.toNat, 4 * instructionCount⟩
 
+/-- The only map header word the routine writes: the length at offset 4.
+The data pointer at offset 0 and the capacity at offset 8 are not writable. -/
+def mapLengthWord (call : Call) : Span := ⟨call.header.toNat + 4, 4⟩
+
+theorem lengthInHeader {call : Call} {byte : Nat} (inside : (mapLengthWord call).Contains byte) :
+    (mapHeader call).Contains byte := by
+  change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4 at inside
+  change call.header.toNat ≤ byte ∧ byte < call.header.toNat + 12
+  omega
+
+/-- The bytes the routine may write. Of the map header, only the length
+word is included, so the data pointer and capacity words are preserved. -/
 def WritableByte (initial : Empty.Snapshot) (call : Call) (capacity : Word) (byte : Nat) : Prop :=
   (stackAllocation initial.sp).Contains byte ∨ (cacheWords initial.a1).Contains byte ∨
     (scratchAllocation ⟨initial.a4, initial.a5⟩).Contains byte ∨
-    (mapHeader call).Contains byte ∨ (mapAllocation call capacity).Contains byte
+    (mapLengthWord call).Contains byte ∨ (mapAllocation call capacity).Contains byte
 
 def helperBase (base : Word) : Word := base + extensionHelperOffset
 def mapInsertBase (base : Word) : Word := base + insertOffset

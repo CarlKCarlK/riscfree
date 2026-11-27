@@ -125,7 +125,7 @@ theorem FreshPrefix.run {base ret : Word} {original : Machine}
       have apart := layout.apart.code _ (List.mem_cons_self ..)
       exact (effects.others byte (codeSafe byte first last)).trans
         (premises.insertionKeeps beforeInsert spare noReplace insertEffects byte
-          (apart.2.2.2.2 byte ⟨first, last⟩) (apart.1 byte ⟨first, last⟩)
+          (apart.2.2.2.2 byte ⟨first, last⟩) (fun length => apart.1 byte ⟨first, last⟩ (lengthInHeader length))
           (apart.2.1 byte ⟨first, last⟩) layout.stack.fits)
   have saved (offset : Word) (value : Word)
       (member : offset ∈ ([44, 40, 36, 32, 28, 24, 20] : List Word))
@@ -218,7 +218,7 @@ theorem FreshPrefix.run {base ret : Word} {original : Machine}
       (freshCacheState state lowWord highWord) (ret - base) regs.saved
   · intro byte outside
     simp only [WritableByte, not_or] at outside
-    obtain ⟨outsideStack, outsideCache, outsideScratch, outsideHeader, outsideMap⟩ := outside
+    obtain ⟨outsideStack, outsideCache, outsideScratch, outsideLength, outsideMap⟩ := outside
     have helperApart : ¬ DeleteExtra.HelperFootprint atCall.sp helperCall scratch helperCall.acceptCount byte := by
       rw [regs.sp]
       intro wrote
@@ -229,10 +229,10 @@ theorem FreshPrefix.run {base ret : Word} {original : Machine}
         omega
       · exact outsideCache cache
       · exact outsideScratch scratch
-      · exact outsideHeader header
+      · exact outsideLength header
       · exact outsideMap map
     exact (finalOutside byte outsideCache).trans ((effects.others byte helperApart).trans
-      (premises.insertionKeeps beforeInsert spare noReplace insertEffects byte outsideStack outsideHeader
+      (premises.insertionKeeps beforeInsert spare noReplace insertEffects byte outsideStack outsideLength
         outsideMap layout.stack.fits))
 
 end Riscfree.RangeInsert.Nonempty

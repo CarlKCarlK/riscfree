@@ -333,7 +333,9 @@ theorem Call.freshAbsent {call : Call} (sorted : Sorted (entriesOf call.old call
 /-- The linked range insertion's premises: the machine at entry, its
 initial memory layout, a map that represents a canonical set, and an
 accurate cached count. Fresh insertion needs a spare map slot, and the
-deletion buffer has room for one key per map entry. -/
+deletion buffer has room for one key per map entry. That scratch bound is
+sufficient but not necessary: the run uses one word per accepted successor,
+and `Premises` states that exact path-specific count. -/
 structure InsertionPremises (base returnAddress : Word) (original : Machine)
     (initial : Snapshot) (call : Call) (capacity low high : Word) (set : RangeSetBlaze) :
     Prop where
@@ -421,7 +423,8 @@ theorem Call.resultRepresents {set : RangeSetBlaze} {call : Call} (initial : Sna
 /-- The linked range insertion returns to its caller after an exact number
 of instructions, preserves every register outside the caller-saved list and
 every byte it may not write, and stores the production model's result: the
-canonical union of the set and the input, with its cardinality cached. -/
+canonical union of the set and the input, with its cardinality cached. The
+map header keeps its data pointer and capacity; only its length changes. -/
 theorem InsertionPremises.run {base returnAddress : Word} {original : Machine}
     {initial : Snapshot} {call : Call} {capacity low high : Word} {set : RangeSetBlaze}
     (premises : InsertionPremises base returnAddress original initial call capacity low high set) :
@@ -430,6 +433,8 @@ theorem InsertionPremises.run {base returnAddress : Word} {original : Machine}
     ∃ final, Riscfree.RV32.run result.count original = some final ∧
       final.regs.get? Register.PC = some returnAddress ∧
       result.inMemory initial call final.mem ∧
+      WordAt final.mem call.header.toNat call.data ∧
+      WordAt final.mem (call.header.toNat + 8) capacity ∧
       (∀ key ∉ [Register.PC, .nextPC, .x5, .x6, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
         final.regs.get? key = original.regs.get? key) ∧
       (∀ byte, ¬ WritableByte initial call capacity byte → final.mem[byte]? = original.mem[byte]?) ∧
@@ -440,7 +445,30 @@ theorem InsertionPremises.run {base returnAddress : Word} {original : Machine}
   obtain ⟨final, ran, returned, stored, regs, keep⟩ := premises.toPremises.run
   have correct := internalAddProduction_correct set (BitVec.append high low).toNat call.input
     premises.accurate
-  exact ⟨final, ran, returned, stored, regs, keep,
+  have apart := premises.layout.apart
+  -- A header byte outside the length word is in no writable region.
+  have keptHeader {address : Nat} {value : Word} (word : WordAt original.mem address value)
+      (inside : ∀ byte, address ≤ byte → byte < address + 4 →
+        (mapHeader call).Contains byte ∧ ¬ (mapLengthWord call).Contains byte) :
+      WordAt final.mem address value :=
+    word.congr fun byte low high => keep byte fun writable => by
+      obtain ⟨inHeader, notLength⟩ := inside byte low high
+      rcases writable with stack | cache | scratch | length | map
+      · exact apart.headerStack byte inHeader stack
+      · exact apart.headerCache byte inHeader cache
+      · exact apart.headerScratch byte inHeader scratch
+      · exact notLength length
+      · exact apart.headerMap byte inHeader map
+  have dataKept := keptHeader premises.layout.map.dataWord fun byte low high => by
+    refine ⟨⟨low, by change byte < call.header.toNat + 12; omega⟩, fun length => ?_⟩
+    change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4 at length
+    omega
+  have capacityKept := keptHeader premises.layout.map.capacityWord fun byte low high => by
+    refine ⟨⟨by change call.header.toNat ≤ byte; omega, by change byte < call.header.toNat + 12; omega⟩,
+      fun length => ?_⟩
+    change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4 at length
+    omega
+  exact ⟨final, ran, returned, stored, dataKept, capacityKept, regs, keep,
     call.resultRepresents initial premises.represents premises.accurate premises.spare, correct⟩
 
 end Riscfree.RangeInsert.Nonempty

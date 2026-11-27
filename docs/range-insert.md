@@ -26,10 +26,13 @@ extension length before that pass. The explicit loop implements the
 production `map_while(...).collect()` stopping and append order.
 
 The mathematical proofs come from range-set-blaze-vibe-validation, a
-pinned Lake dependency (commit `d7837025` on its `main`),
-so riscfree keeps no copy of them. That revision puts the library in the
-`RangeSetBlazeValidation` namespace, because Sail also declares a
-top-level `IntRange`. Its sources build with both its own Lean 4.33.1 and
+pinned Lake dependency (commit `09f0d01d` on its `production-api`
+branch, one commit after `d7837025` on its `main`), so riscfree keeps no
+copy of them. That commit exposes the fresh and extension branches of the
+production model (`internalAddProduction_fresh` and
+`internalAddProduction_extension`), which `Theorem.lean` uses. The
+library is in the `RangeSetBlazeValidation` namespace, because Sail also
+declares a top-level `IntRange`. Its sources build with both its own Lean 4.33.1 and
 riscfree's Lean 4.28.0-rc1, without separate copies. riscfree requires it
 after Pico FV, so Pico FV's Mathlib and Sail revisions are the ones
 resolved. The source check, axiom audit, and kernel replay include the
@@ -46,7 +49,7 @@ construction. `Arithmetic.lean` proves the unsigned endpoint comparisons
 and widened inclusive width, including an inclusive length of `2^32`.
 It also establishes the exact two-word addition and subtraction identities
 used in the RV32I bookkeeping.
-[Mathematical proof](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/blob/d7837025ca5ed1ec74f35768ea12d97014dad249/RangeSetBlaze/AlgoC.lean)
+[Mathematical proof](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/blob/09f0d01d148f2c18e86fe55ff543c8851a177842/RangeSetBlaze/AlgoC.lean)
 
 ## Storage and machine costs
 
@@ -240,11 +243,26 @@ that result to the production model on every path. Its premises are the
 entry machine and layout, a map that represents a canonical set, an
 accurate cached count, a spare map slot for fresh insertion, and one
 deletion-buffer word per map entry. Sortedness, nonoverlap, and the exact
-helper scratch counts are derived from these premises. The conclusion adds
-three facts to the machine facts. The live entries are the ranges of
-`internalAddProduction`, and the cache words hold its cached count. That
-result is the union of the set and the input, and its count is its
-cardinality. `Layout/Nonvacuity.lean` satisfies these premises for every
-input range on a concrete machine holding `4..=9`, `12..=16`, and
-`20..=23` with cache 15. It also shows inputs that reach each successful
-branch and applies the theorem.
+helper scratch counts are derived from these premises. The writable
+regions are the 112-byte stack area, the two cache words, the scratch
+allocation, the map allocation, and only the length word of the map
+header. The conclusion states that the header's data pointer and capacity
+words are unchanged. It adds three facts to the machine facts. The live
+entries are the ranges of `internalAddProduction`, and the cache words
+hold its cached count. That result is the union of the set and the input,
+and its count is its cardinality. `Layout/Nonvacuity.lean` satisfies these
+premises for every input range on a concrete machine holding `4..=9`,
+`12..=16`, and `20..=23` with cache 15. It also shows inputs that reach
+each successful branch and applies the theorem.
+
+The deletion-buffer premise is sufficient but not necessary. The machine
+uses one scratch word per accepted successor on the path that runs. That
+is at most the number of entries after the selected range on the
+extension and fresh paths, and none on the empty and contained paths.
+A caller that sizes the buffer from the current map length satisfies the
+premise. A smaller buffer that would still succeed is outside this
+theorem. `RangeInsert.Nonempty.Premises.run` in `Correct.lean` takes the
+exact path-specific counts (`freshScratch` and `extensionScratch`) for
+the machine facts. `Call.resultRepresents` and
+`internalAddProduction_correct` do not depend on scratch. A tighter
+premise for `InsertionPremises.run` is deferred.

@@ -496,19 +496,22 @@ theorem modelOnEveryBranch :
 
 /-- The bundle invokes the unified theorem: on the concrete machine every
 input returns with a map that represents the production model's canonical
-union and a cache that holds its cardinality. -/
+union and a cache that holds its cardinality, and the map header keeps
+its data pointer and capacity. -/
 theorem modelRuns (start stop : Word) :
     let result := (call start stop).result (initial start stop) 4 15 0
     let model := threeRanges.internalAddProduction 15 (call start stop).input
     ∃ final, run result.count (machine start stop) = some final ∧
       final.regs.get? Register.PC = some Model.returnTo ∧
       result.inMemory (initial start stop) (call start stop) final.mem ∧
+      WordAt final.mem (call start stop).header.toNat (call start stop).data ∧
+      WordAt final.mem ((call start stop).header.toNat + 8) 4 ∧
       result.Represents model ∧
       model.setResult.toSet = threeRanges.toSet ∪ (call start stop).input.toSet ∧
       model.cachedLength = model.setResult.cardinality := by
   intro result model
-  obtain ⟨final, ran, returned, stored, _, _, represents, union, cached⟩ :=
+  obtain ⟨final, ran, returned, stored, data, capacity, _, _, represents, union, cached⟩ :=
     (insertionSatisfiable start stop).run
-  exact ⟨final, ran, returned, stored, represents, union, cached⟩
+  exact ⟨final, ran, returned, stored, data, capacity, represents, union, cached⟩
 
 end Riscfree.RangeInsert.Nonempty.Layout.Nonvacuity

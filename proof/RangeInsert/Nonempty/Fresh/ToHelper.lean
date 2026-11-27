@@ -61,7 +61,7 @@ private theorem insertionKeepsPrefix {initial caller : Snapshot} {original : Mac
     (result : SortedMap.Insert.finalMemory (call.freshInsert capacity)
       (SortedMap.Insert.pushed (freshPrefixMemory original initial) caller.sp (insertView caller)) after)
     (byte : Nat) (outsideInsertion : byte < caller.sp.toNat - 32 ∨ caller.sp.toNat ≤ byte)
-    (outsideHeader : ¬ (mapHeader call).Contains byte)
+    (outsideLength : ¬ (mapLengthWord call).Contains byte)
     (outsideMap : ¬ (mapAllocation call capacity).Contains byte)
     (fit : 112 ≤ initial.sp.toNat) :
     after[byte]? = (freshPrefixMemory original initial)[byte]? := by
@@ -75,7 +75,7 @@ private theorem insertionKeepsPrefix {initial caller : Snapshot} {original : Mac
     omega
   have changedMap := (result.2.2 newKey (Call.freshVectorValid capacity spare)).2.2.2.2
   have outsideLength : byte < call.header.toNat + 4 ∨ call.header.toNat + 8 ≤ byte := by
-    change ¬ (call.header.toNat ≤ byte ∧ byte < call.header.toNat + 12) at outsideHeader
+    change ¬ (call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4) at outsideLength
     omega
   have outsideEntries :
       byte < (call.freshInsert capacity).vector.slot (call.freshInsert capacity).vector.index.toNat ∨
@@ -96,7 +96,7 @@ theorem FreshPrefix.insertionKeeps {base ret : Word} {original : Machine}
     (result : SortedMap.Insert.finalMemory (call.freshInsert capacity)
       (SortedMap.Insert.pushed (freshPrefixMemory original initial) caller.sp (insertView caller)) after)
     (byte : Nat) (outsideStack : ¬ (stackAllocation initial.sp).Contains byte)
-    (outsideHeader : ¬ (mapHeader call).Contains byte)
+    (outsideLength : ¬ (mapLengthWord call).Contains byte)
     (outsideMap : ¬ (mapAllocation call capacity).Contains byte)
     (fit : 112 ≤ initial.sp.toNat) :
     after[byte]? = original.mem[byte]? := by
@@ -109,7 +109,7 @@ theorem FreshPrefix.insertionKeeps {base ret : Word} {original : Machine}
     rw [natural]
     change ¬ (initial.sp.toNat - 112 ≤ byte ∧ byte < initial.sp.toNat - 112 + 112) at outsideStack
     omega
-  exact (insertionKeepsPrefix reached spare newKey result byte outsideInsertion outsideHeader outsideMap fit).trans
+  exact (insertionKeepsPrefix reached spare newKey result byte outsideInsertion outsideLength outsideMap fit).trans
     (premises.keptByte byte outsideOuter)
 
 set_option maxHeartbeats 2500000 in
@@ -190,7 +190,8 @@ theorem FreshPrefix.toHelper {base ret : Word} {original : Machine}
     layout.code.entry.withMemory after fun byte low high => by
       have safe := layout.apart.code _ (List.mem_cons_self ..)
       exact premises.insertionKeeps facts spare nonReplace resultAtCaller byte
-        (safe.2.2.2.2 byte ⟨low, high⟩) (safe.1 byte ⟨low, high⟩) (safe.2.1 byte ⟨low, high⟩) layout.stack.fits
+        (safe.2.2.2.2 byte ⟨low, high⟩) (fun length => safe.1 byte ⟨low, high⟩ (lengthInHeader length))
+        (safe.2.1 byte ⟨low, high⟩) layout.stack.fits
   have statusZero : continued.a0 = 0#32 := status.trans succeeded
   have returnSite : continued.pc = 0xa4#32 ∨ continued.pc = 0xd8#32 := by
     change insertionReturn call = 0xa4#32 ∨ insertionReturn call = 0xd8#32
@@ -326,7 +327,8 @@ theorem FreshPrefix.helperStackWord {base ret : Word} {original : Machine}
     omega
   have above : caller.sp.toNat ≤ byte := by rw [reached.sp]; omega
   exact insertionKeepsPrefix reached spare noReplace result byte (Or.inr above)
-    (layout.apart.headerStack.symm byte atStack) (layout.apart.mapStack.symm byte atStack) fits
+    (fun length => layout.apart.headerStack.symm byte atStack (lengthInHeader length))
+    (layout.apart.mapStack.symm byte atStack) fits
 
 private theorem FreshPrefix.storedMap {base : Word} {original entered : Machine}
     {initial caller : Snapshot} {call : Call} {capacity low high : Word} {after : ByteMemory}
@@ -396,7 +398,8 @@ theorem FreshPrefix.helperInput {base ret : Word} {original : Machine}
   have code : CodeImages base background := layout.code.withMemory after fun span member byte inside =>
     have safe := apart.code span member
     premises.insertionKeeps reached spare noReplace result byte
-      (safe.2.2.2.2 byte inside) (safe.1 byte inside) (safe.2.1 byte inside) fit
+      (safe.2.2.2.2 byte inside) (fun length => safe.1 byte inside (lengthInHeader length))
+      (safe.2.1 byte inside) fit
   have keepCache {address : Nat} {value : Word} (word : WordAt original.mem address value)
       (inside : ∀ byte, address ≤ byte → byte < address + 4 → (cacheWords initial.a1).Contains byte) :
       WordAt entered.mem address value := by
@@ -404,7 +407,8 @@ theorem FreshPrefix.helperInput {base ret : Word} {original : Machine}
     exact word.congr fun byte low high => by
       have onCache := inside byte low high
       exact premises.insertionKeeps reached spare noReplace result byte
-        (apart.cacheStack byte onCache) (apart.headerCache.symm byte onCache) (apart.mapCache.symm byte onCache) fit
+        (apart.cacheStack byte onCache) (fun length => apart.headerCache.symm byte onCache (lengthInHeader length))
+        (apart.mapCache.symm byte onCache) fit
   have cachePart (offset : Nat) (small : offset ≤ 4) (byte : Nat)
       (lo : initial.a1.toNat + offset ≤ byte) (hi : byte < initial.a1.toNat + offset + 4) :
       (cacheWords initial.a1).Contains byte := by

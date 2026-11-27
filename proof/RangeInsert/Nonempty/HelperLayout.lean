@@ -669,7 +669,8 @@ theorem HelperInput.footprintRegions {base : Word} {entered : Machine}
     (touched : DeleteExtra.HelperFootprint (Empty.frameBase initial.sp) call ⟨initial.a4, initial.a5⟩ accepted byte) :
     (initial.sp.toNat - 112 ≤ byte ∧ byte < initial.sp.toNat - 28) ∨
       (cacheWords initial.a1).Contains byte ∨ (scratchAllocation ⟨initial.a4, initial.a5⟩).Contains byte ∨
-      (mapHeader (helperAsOuter call)).Contains byte ∨ (mapAllocation (helperAsOuter call) capacity).Contains byte := by
+      (mapLengthWord (helperAsOuter call)).Contains byte ∨
+        (mapAllocation (helperAsOuter call) capacity).Contains byte := by
   have fits := input.layout.stack.fits
   have geometry := stackGeometry initial.sp fits
   have outer : (Empty.frameBase initial.sp).toNat = initial.sp.toNat - 48 := geometry.1
@@ -702,7 +703,7 @@ theorem HelperInput.footprintRegions {base : Word} {entered : Machine}
       rw [helper] at nested
       omega
     · right; right; right; left
-      change call.header.toNat ≤ byte ∧ byte < call.header.toNat + 12
+      change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4
       omega
     · right; right; right; right
       change call.data.toNat + 8 * (call.position + 1) ≤ byte ∧
@@ -726,7 +727,7 @@ theorem HelperInput.codeApartAll {base : Word} {entered : Machine}
     omega
   · exact code.2.2.1 byte atCode cache
   · exact code.2.2.2.1 byte atCode scratch
-  · exact code.1 byte atCode header
+  · exact code.1 byte atCode (lengthInHeader header)
   · exact code.2.1 byte atCode map
 
 theorem HelperInput.savedApartAll {base : Word} {entered : Machine}
@@ -745,7 +746,7 @@ theorem HelperInput.savedApartAll {base : Word} {entered : Machine}
   · omega
   · exact apart.cacheStack byte cache atStack
   · exact apart.scratchStack byte scratch atStack
-  · exact apart.headerStack byte header atStack
+  · exact apart.headerStack byte (lengthInHeader header) atStack
   · exact apart.mapStack byte map atStack
 
 end Riscfree.RangeInsert.Nonempty
