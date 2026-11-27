@@ -1,9 +1,12 @@
+emulator_release := "emulator/target/riscv32im-unknown-none-elf/release"
+
 # Flash and monitor one popcount routine: `just run` (bit loop) or `just run swar`.
 run algorithm="loop":
     cargo run --locked --release {{ if algorithm == "loop" { "" } else if algorithm == "swar" { "--features swar" } else { error("algorithm must be loop or swar") } }}
 
 check:
     cargo check --locked
+    cd emulator && cargo check --locked --bins --examples
 
 build:
     cargo build --locked --release
@@ -17,7 +20,20 @@ build-raw-vec:
 run-raw-vec: build-raw-vec
     espflash flash --monitor target/riscv32imc-unknown-none-elf/release/examples/raw_vec
 
-# Check the Lean proofs and their axioms, then compare each routine's linked bytes in the firmware that calls it.
+# Run one popcount routine under QEMU instead of on the board: `just emulate` (bit loop) or `just emulate swar`.
+emulate algorithm="loop":
+    cd emulator && cargo run --locked --release {{ if algorithm == "loop" { "" } else if algorithm == "swar" { "--features swar" } else { error("algorithm must be loop or swar") } }}
+
+# Build the QEMU RawVec harness and check its linked insertion instructions and that it has no compressed code.
+build-emulator-raw-vec:
+    cd emulator && cargo build --locked --release --example raw_vec
+    python3 research/vec-ffi/linked/check_elf.py --uncompressed {{emulator_release}}/examples/raw_vec
+
+# Run the checked RawVec harness under QEMU.
+emulate-raw-vec: build-emulator-raw-vec
+    cd emulator && cargo run --locked --release --example raw_vec
+
+# Check the Lean proofs and their axioms, then compare each routine's linked bytes in the firmware and the QEMU harness that call it.
 prove:
     python3 scripts/check_proof_sources.py
     lake build
@@ -29,6 +45,12 @@ prove:
     just verify-elf PopcountSwar
     just build-raw-vec
     just verify-elf RawVec.Shim target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    cd emulator && cargo build --locked --release
+    just verify-emulator-elf Popcount {{emulator_release}}/riscfree-emulator
+    cd emulator && cargo build --locked --release --features swar
+    just verify-emulator-elf PopcountSwar {{emulator_release}}/riscfree-emulator
+    just build-emulator-raw-vec
+    just verify-emulator-elf RawVec {{emulator_release}}/examples/raw_vec
 
 # Explain each axiom the RawVec and shim theorems reach, and fail unless the executed instructions reach only the expected ones.
 axiom-paths:
@@ -47,4 +69,12 @@ kernel-check:
 verify-elf module elf="target/riscv32imc-unknown-none-elf/release/riscfree":
     printf '%s\n' 'import {{module}}' \
         '#eval Riscfree.{{module}}.verifyElf "{{elf}}"' \
+        | lake env lean -DwarningAsError=true --stdin
+
+# Like verify-elf, and also require that the QEMU harness has no compressed instructions.
+[private]
+verify-emulator-elf module elf:
+    printf '%s\n' 'import {{module}}' \
+        '#eval Riscfree.{{module}}.verifyElf "{{elf}}"' \
+        '#eval Riscfree.verifyUncompressed "{{elf}}"' \
         | lake env lean -DwarningAsError=true --stdin

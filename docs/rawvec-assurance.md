@@ -208,6 +208,9 @@ return to `0x4201362c`, `0x4201363e`, `0x42013650`, `0x42013662`, and
 `0x420136a2`. Three of them have bit 1 set. For those three, the final `ret` is
 the only instruction outside the formal guarantee. Covering it would need a Sail
 configuration with Zca, which in turn means verifying the compressed caller.
+The QEMU harness ([emulator.md](emulator.md)) avoids the question: it is
+compiled without compressed instructions and calls the routine directly, so
+every return address is word-aligned.
 
 ## Remaining trusted base
 

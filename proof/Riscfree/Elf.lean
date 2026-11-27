@@ -53,4 +53,23 @@ def verifyElfSymbol (path symbol : String) (words : List (BitVec 32)) : IO Nat :
 def verifyElf (path symbol : String) (words : List (BitVec 32)) : IO Unit :=
   discard <| verifyElfSymbol path symbol words
 
+-- Check that the file is a 32-bit little-endian RISC-V ELF whose `e_flags`
+-- leave `EF_RISCV_RVC` clear. The linker sets that flag when any input object
+-- enables compressed instructions. With it clear, every instruction is a
+-- 32-bit word, so every call leaves the word-aligned return address that the
+-- theorems' final `ret` needs.
+def verifyUncompressed (path : String) : IO Unit := do
+  let elf ← IO.FS.readBinFile path
+  unless elf.size ≥ 52 do
+    throw (IO.userError s!"{path} is too short for an ELF32 header")
+  let byte (index : Nat) : Nat := elf[index]!.toNat
+  let magic := [byte 0, byte 1, byte 2, byte 3]
+  let machine := byte 0x12 + (byte 0x13 <<< 8)
+  let flags := byte 0x24 + (byte 0x25 <<< 8) + (byte 0x26 <<< 16) + (byte 0x27 <<< 24)
+  unless magic == [0x7f, 0x45, 0x4c, 0x46] && byte 4 == 1 && byte 5 == 1 && machine == 0xf3 do
+    throw (IO.userError s!"{path} is not a 32-bit little-endian RISC-V ELF file")
+  unless flags &&& 1 == 0 do
+    throw (IO.userError s!"{path} may contain compressed instructions (EF_RISCV_RVC is set)")
+  IO.println s!"{path}: no compressed instructions (EF_RISCV_RVC clear)"
+
 end Riscfree
