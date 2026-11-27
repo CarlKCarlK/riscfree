@@ -1,8 +1,9 @@
 import RangeInsert.InsertTable
 import SortedMap.Remove.Instructions
 
-/-! The early return for an empty inclusive range executes the outer
-routine's prologue, one taken branch, and the epilogue. -/
+/-! The range insertion entry point's stack frame and the run for an
+empty inclusive range. The prologue and epilogue are shared by the
+returning paths. -/
 
 namespace Riscfree.RangeInsert.Empty
 
@@ -19,15 +20,18 @@ structure Snapshot where
   s0 : Word
   s1 : Word
   a0 : Word
+  a1 : Word
   a2 : Word
   a3 : Word
+  a4 : Word
+  a5 : Word
   s2 : Word
   s3 : Word
   s4 : Word
   s5 : Word
 
 instance : RegisterView Snapshot where
-  tracked := [1, 2, 8, 9, 10, 12, 13, 18, 19, 20, 21]
+  tracked := [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21]
   pc state := state.pc
   value state index := match index.val with
     | 1 => state.ra
@@ -35,8 +39,11 @@ instance : RegisterView Snapshot where
     | 8 => state.s0
     | 9 => state.s1
     | 10 => state.a0
+    | 11 => state.a1
     | 12 => state.a2
     | 13 => state.a3
+    | 14 => state.a4
+    | 15 => state.a5
     | 18 => state.s2
     | 19 => state.s3
     | 20 => state.s4
@@ -45,13 +52,13 @@ instance : RegisterView Snapshot where
   distinct := by decide
   nonzero := by decide
 
-@[simp] private theorem viewPc (state : Snapshot) : RegisterView.pc state = state.pc := rfl
+@[simp] theorem viewPc (state : Snapshot) : RegisterView.pc state = state.pc := rfl
 
 section Steps
 
 variable {base : Word} {original : Machine} {memory : ByteMemory}
 
-private theorem fetchDecode (machine : MachineState original)
+theorem fetchDecode (machine : MachineState original)
     (image : CodeImage instructions base { original with mem := memory })
     (state : Snapshot) (index : Fin instructions.length)
     (pc : state.pc = BitVec.ofNat 32 (index.val * 4))
@@ -68,7 +75,7 @@ private theorem fetchDecode (machine : MachineState original)
         isRVC (entry.1.extractLsb' 0 16) = false) _ member),
     linkedWordsDecode _ synced.privilege synced.landingPad _ member notTrap⟩
 
-private theorem load (machine : MachineState original) {state : Snapshot} {address value : Word}
+theorem load (machine : MachineState original) {state : Snapshot} {address value : Word}
     (permission : Readable original address) (contents : WordAt memory address.toNat value)
     (next offset : Word) :
     let entered := write_reg_state (sync base { original with mem := memory } state) Register.nextPC next
@@ -314,9 +321,8 @@ def frameBase (sp : Word) : Word := sp - 48
 def OutsideFrame (sp : Word) (byte : Nat) : Prop :=
   byte < sp.toNat - 48 ∨ sp.toNat ≤ byte
 
-structure Premises (base returnAddress : Word) (original : Machine) (initial : Snapshot) : Prop where
+structure Frame (base returnAddress : Word) (original : Machine) (initial : Snapshot) : Prop where
   entry : original = sync base original { initial with pc := 0 }
-  empty : initial.a3.toNat < initial.a2.toNat
   link : initial.ra = returnAddress
   mode : MachineMode original returnAddress
   code : CodeImage instructions base original
@@ -328,7 +334,11 @@ structure Premises (base returnAddress : Word) (original : Machine) (initial : S
   writable : ∀ offset ∈ ([44, 40, 36, 32, 28, 24, 20, 4] : List Word),
     Writable original (frameBase initial.sp + offset)
 
-private theorem frameAddress {sp : Word} (fits : 48 ≤ sp.toNat) (offset : Word)
+structure Premises (base returnAddress : Word) (original : Machine) (initial : Snapshot) : Prop
+    extends Frame base returnAddress original initial where
+  empty : initial.a3.toNat < initial.a2.toNat
+
+theorem frameAddress {sp : Word} (fits : 48 ≤ sp.toNat) (offset : Word)
     (small : offset.toNat ≤ 44) :
     (frameBase sp + offset).toNat = sp.toNat - 48 + offset.toNat := by
   have below := sp.isLt
@@ -378,86 +388,113 @@ private theorem savedWords (memory : ByteMemory) (state : Snapshot) (fits : 48 �
     repeat refine pushOther fits (by decide) (by decide) (by decide) ?_
     exact wordAtStore _ _ _
 
-theorem runEmpty {base returnAddress : Word} {original : Machine} {initial : Snapshot}
-    (premises : Premises base returnAddress original initial) :
-    run 19 (sync base original { initial with pc := 0 }) =
-      some (sync base { original with mem := pushed original.mem initial }
-        { initial with pc := returnAddress - base }) := by
-  let machine := premises.mode.toMachineState
-  have image (memory : ByteMemory) (agrees : ∀ byte, OutsideFrame initial.sp byte →
-      memory[byte]? = original.mem[byte]?) :
-      CodeImage instructions base { original with mem := memory } :=
-    premises.code.withMemory memory fun byte low high =>
-      agrees byte (premises.codeOutside byte low high)
-  have initialImage := image original.mem (fun _ _ => rfl)
-  have savedImage := image (pushed original.mem initial) (by
-    intro byte outside
-    unfold pushed
-    iterate 8 rw [pushOutside _ _ _ premises.frameFits (by decide) _ outside])
-  have lowered : initial.sp + 0xffffffd0#32 = frameBase initial.sp := by
-    rw [frameBase, BitVec.sub_eq_add_neg]
-    rfl
-  refine runStep (step00 machine initialImage _ rfl) ?_
-  simp only [lowered]
-  refine runStep (step04 machine initialImage _ rfl (premises.writable _ (by decide))) ?_
-  refine runStep (step08 machine (image _ ?_) _ rfl (premises.writable _ (by decide))) ?_
-  · intro byte outside
-    exact pushOutside _ _ _ premises.frameFits (by decide) _ outside
-  refine runStep (step0c machine (image _ ?_) _ rfl (premises.writable _ (by decide))) ?_
-  · intro byte outside
-    change (push initial.sp 40 initial.s0 (push initial.sp 44 initial.ra original.mem))[byte]? = _
-    iterate 2 rw [pushOutside _ _ _ premises.frameFits (by decide) _ outside]
-  refine runStep (step10 machine (image _ ?_) _ rfl (premises.writable _ (by decide))) ?_
-  · intro byte outside
-    change (push initial.sp 36 initial.s1 (push initial.sp 40 initial.s0
-      (push initial.sp 44 initial.ra original.mem)))[byte]? = _
-    iterate 3 rw [pushOutside _ _ _ premises.frameFits (by decide) _ outside]
-  refine runStep (step14 machine (image _ ?_) _ rfl (premises.writable _ (by decide))) ?_
-  · intro byte outside
-    change (push initial.sp 32 initial.s2 (push initial.sp 36 initial.s1
-      (push initial.sp 40 initial.s0 (push initial.sp 44 initial.ra original.mem))))[byte]? = _
-    iterate 4 rw [pushOutside _ _ _ premises.frameFits (by decide) _ outside]
-  refine runStep (step18 machine (image _ ?_) _ rfl (premises.writable _ (by decide))) ?_
-  · intro byte outside
-    change (push initial.sp 28 initial.s3 (push initial.sp 32 initial.s2
-      (push initial.sp 36 initial.s1 (push initial.sp 40 initial.s0
-        (push initial.sp 44 initial.ra original.mem)))))[byte]? = _
-    iterate 5 rw [pushOutside _ _ _ premises.frameFits (by decide) _ outside]
-  refine runStep (step1c machine (image _ ?_) _ rfl (premises.writable _ (by decide))) ?_
-  · intro byte outside
-    change (push initial.sp 24 initial.s4 (push initial.sp 28 initial.s3
-      (push initial.sp 32 initial.s2 (push initial.sp 36 initial.s1
-        (push initial.sp 40 initial.s0 (push initial.sp 44 initial.ra original.mem))))))[byte]? = _
-    iterate 6 rw [pushOutside _ _ _ premises.frameFits (by decide) _ outside]
-  refine runStep (step20 machine (image _ ?_) _ rfl (premises.writable _ (by decide))) ?_
-  · intro byte outside
-    change (push initial.sp 20 initial.s5 (push initial.sp 24 initial.s4
-      (push initial.sp 28 initial.s3 (push initial.sp 32 initial.s2
-        (push initial.sp 36 initial.s1 (push initial.sp 40 initial.s0
-          (push initial.sp 44 initial.ra original.mem)))))))[byte]? = _
-    iterate 7 rw [pushOutside _ _ _ premises.frameFits (by decide) _ outside]
-  have branch := branchEmpty machine savedImage { initial with pc := 0x24, sp := frameBase initial.sp }
-    rfl premises.empty
-  refine runStep branch ?_
-  obtain ⟨ra, s0, s1, s2, s3, s4, s5⟩ := savedWords original.mem initial premises.frameFits
-  refine runStep (step124 machine savedImage _ rfl _ (premises.readable _ (by decide)) ra) ?_
-  refine runStep (step128 machine savedImage _ rfl _ (premises.readable _ (by decide)) s0) ?_
-  refine runStep (step12c machine savedImage _ rfl _ (premises.readable _ (by decide)) s1) ?_
-  refine runStep (step130 machine savedImage _ rfl _ (premises.readable _ (by decide)) s2) ?_
-  refine runStep (step134 machine savedImage _ rfl _ (premises.readable _ (by decide)) s3) ?_
-  refine runStep (step138 machine savedImage _ rfl _ (premises.readable _ (by decide)) s4) ?_
-  refine runStep (step13c machine savedImage _ rfl _ (premises.readable _ (by decide)) s5) ?_
-  refine runStep (step140 machine savedImage _ rfl) ?_
-  refine runStep (step144 machine savedImage _ rfl returnAddress premises.link
-    premises.mode.returnLow premises.mode.returnNext) ?_
-  have restored : frameBase initial.sp + 48#32 = initial.sp := BitVec.sub_add_cancel _ _
-  simp only [restored]
-  rfl
-
 theorem pushedOutside (memory : ByteMemory) (initial : Snapshot)
     (fits : 48 ≤ initial.sp.toNat) (byte : Nat) (outside : OutsideFrame initial.sp byte) :
     (pushed memory initial)[byte]? = memory[byte]? := by
   unfold pushed
   iterate 8 rw [pushOutside _ _ _ fits (by decide) _ outside]
+
+theorem Frame.imageAt {base returnAddress : Word} {original : Machine} {initial : Snapshot}
+    (frame : Frame base returnAddress original initial) (memory : ByteMemory)
+    (agrees : ∀ byte, OutsideFrame initial.sp byte → memory[byte]? = original.mem[byte]?) :
+    CodeImage instructions base { original with mem := memory } :=
+  frame.code.withMemory memory fun byte low high =>
+    agrees byte (frame.codeOutside byte low high)
+
+theorem Frame.pushedImage {base returnAddress : Word} {original : Machine} {initial : Snapshot}
+    (frame : Frame base returnAddress original initial) :
+    CodeImage instructions base { original with mem := pushed original.mem initial } :=
+  frame.imageAt _ (pushedOutside _ _ frame.frameFits)
+
+theorem Frame.prologue {base returnAddress : Word} {original : Machine} {initial : Snapshot}
+    (frame : Frame base returnAddress original initial) :
+    run 9 (sync base original { initial with pc := 0 }) =
+      some (sync base { original with mem := pushed original.mem initial }
+        { initial with pc := 0x24, sp := frameBase initial.sp }) := by
+  let machine := frame.mode.toMachineState
+  have image := frame.imageAt
+  have initialImage := image original.mem (fun _ _ => rfl)
+  have lowered : initial.sp + 0xffffffd0#32 = frameBase initial.sp := by
+    rw [frameBase, BitVec.sub_eq_add_neg]
+    rfl
+  refine runStep (step00 machine initialImage _ rfl) ?_
+  simp only [lowered]
+  refine runStep (step04 machine initialImage _ rfl (frame.writable _ (by decide))) ?_
+  refine runStep (step08 machine (image _ ?_) _ rfl (frame.writable _ (by decide))) ?_
+  · intro byte outside
+    exact pushOutside _ _ _ frame.frameFits (by decide) _ outside
+  refine runStep (step0c machine (image _ ?_) _ rfl (frame.writable _ (by decide))) ?_
+  · intro byte outside
+    change (push initial.sp 40 initial.s0 (push initial.sp 44 initial.ra original.mem))[byte]? = _
+    iterate 2 rw [pushOutside _ _ _ frame.frameFits (by decide) _ outside]
+  refine runStep (step10 machine (image _ ?_) _ rfl (frame.writable _ (by decide))) ?_
+  · intro byte outside
+    change (push initial.sp 36 initial.s1 (push initial.sp 40 initial.s0
+      (push initial.sp 44 initial.ra original.mem)))[byte]? = _
+    iterate 3 rw [pushOutside _ _ _ frame.frameFits (by decide) _ outside]
+  refine runStep (step14 machine (image _ ?_) _ rfl (frame.writable _ (by decide))) ?_
+  · intro byte outside
+    change (push initial.sp 32 initial.s2 (push initial.sp 36 initial.s1
+      (push initial.sp 40 initial.s0 (push initial.sp 44 initial.ra original.mem))))[byte]? = _
+    iterate 4 rw [pushOutside _ _ _ frame.frameFits (by decide) _ outside]
+  refine runStep (step18 machine (image _ ?_) _ rfl (frame.writable _ (by decide))) ?_
+  · intro byte outside
+    change (push initial.sp 28 initial.s3 (push initial.sp 32 initial.s2
+      (push initial.sp 36 initial.s1 (push initial.sp 40 initial.s0
+        (push initial.sp 44 initial.ra original.mem)))))[byte]? = _
+    iterate 5 rw [pushOutside _ _ _ frame.frameFits (by decide) _ outside]
+  refine runStep (step1c machine (image _ ?_) _ rfl (frame.writable _ (by decide))) ?_
+  · intro byte outside
+    change (push initial.sp 24 initial.s4 (push initial.sp 28 initial.s3
+      (push initial.sp 32 initial.s2 (push initial.sp 36 initial.s1
+        (push initial.sp 40 initial.s0 (push initial.sp 44 initial.ra original.mem))))))[byte]? = _
+    iterate 6 rw [pushOutside _ _ _ frame.frameFits (by decide) _ outside]
+  refine runStep (step20 machine (image _ ?_) _ rfl (frame.writable _ (by decide))) ?_
+  · intro byte outside
+    change (push initial.sp 20 initial.s5 (push initial.sp 24 initial.s4
+      (push initial.sp 28 initial.s3 (push initial.sp 32 initial.s2
+        (push initial.sp 36 initial.s1 (push initial.sp 40 initial.s0
+          (push initial.sp 44 initial.ra original.mem)))))))[byte]? = _
+    iterate 7 rw [pushOutside _ _ _ frame.frameFits (by decide) _ outside]
+  rfl
+
+def restore (initial state : Snapshot) (pc : Word) : Snapshot :=
+  { state with
+    pc := pc, sp := initial.sp, ra := initial.ra,
+    s0 := initial.s0, s1 := initial.s1, s2 := initial.s2, s3 := initial.s3,
+    s4 := initial.s4, s5 := initial.s5 }
+
+theorem Frame.epilogue {base returnAddress : Word} {original : Machine} {initial : Snapshot}
+    (frame : Frame base returnAddress original initial) (state : Snapshot)
+    (atExit : state.pc = 0x124#32) (lowered : state.sp = frameBase initial.sp) :
+    run 9 (sync base { original with mem := pushed original.mem initial } state) =
+      some (sync base { original with mem := pushed original.mem initial }
+        (restore initial state (returnAddress - base))) := by
+  let machine := frame.mode.toMachineState
+  have savedImage := frame.pushedImage
+  obtain ⟨ra, s0, s1, s2, s3, s4, s5⟩ := savedWords original.mem initial frame.frameFits
+  refine runStep (step124 machine savedImage _ atExit _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ ra)) ?_
+  refine runStep (step128 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s0)) ?_
+  refine runStep (step12c machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s1)) ?_
+  refine runStep (step130 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s2)) ?_
+  refine runStep (step134 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s3)) ?_
+  refine runStep (step138 machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s4)) ?_
+  refine runStep (step13c machine savedImage _ rfl _ (lowered ▸ frame.readable _ (by decide)) (lowered ▸ s5)) ?_
+  refine runStep (step140 machine savedImage _ rfl) ?_
+  refine runStep (step144 machine savedImage _ rfl returnAddress frame.link
+    frame.mode.returnLow frame.mode.returnNext) ?_
+  have restored : frameBase initial.sp + 48#32 = initial.sp := BitVec.sub_add_cancel _ _
+  simp only [lowered, restored]
+  rfl
+
+theorem runEmpty {base returnAddress : Word} {original : Machine} {initial : Snapshot}
+    (premises : Premises base returnAddress original initial) :
+    run 19 (sync base original { initial with pc := 0 }) =
+      some (sync base { original with mem := pushed original.mem initial }
+        { initial with pc := returnAddress - base }) := by
+  rw [show 19 = 9 + (1 + 9) by decide, runAdd, premises.toFrame.prologue, Option.bind_some]
+  refine runStep (branchEmpty premises.mode.toMachineState premises.toFrame.pushedImage _ rfl
+    premises.empty) ?_
+  exact premises.toFrame.epilogue _ rfl rfl
 
 end Riscfree.RangeInsert.Empty

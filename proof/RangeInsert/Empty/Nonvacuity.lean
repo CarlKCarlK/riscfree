@@ -24,6 +24,9 @@ private def initial : Snapshot where
   s4 := 5
   s5 := 6
   a0 := 0x3000
+  a1 := 0
+  a4 := 0
+  a5 := 0
   a2 := 9
   a3 := 8
 
@@ -46,7 +49,7 @@ theorem witness : Premises Model.codeBase Model.returnTo machine initial := by
       omega
     · intro index bound
       exact Model.tableWordAt 0x400 instructions bound
-  refine ⟨(syncSync _ _).symm, by decide, rfl, mode, code, by decide, ?_, ?_, ?_⟩
+  refine ⟨⟨(syncSync _ _).symm, rfl, mode, code, by decide, ?_, ?_, ?_⟩, by decide⟩
   · intro byte _ below
     left
     change byte < 0x5000 - 48
