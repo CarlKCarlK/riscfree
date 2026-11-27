@@ -38,13 +38,13 @@ The [generic Rust implementation](linked/raw_vec.rs) is compiled at
 `opt-level=1` for RV32IM and linked into the ESP32-C3 firmware. The byte check
 reads each function directly from the linked ELF and compares it with its
 recorded instruction words ([u32](linked/raw_vec_u32.words),
-[Pair](linked/raw_vec_pair.words)). To disassemble the linked routines with the
+[Pair](linked/raw_vec_pair.words), and the two removal routines below). To disassemble the linked routines with the
 compiler's LLVM tools:
 
 ```bash
 host=$(rustc -vV | sed -n 's/^host: //p')
 "$(rustc --print sysroot)/lib/rustlib/$host/bin/llvm-objdump" \
-    --disassemble-symbols=raw_vec_u32_insert,raw_vec_pair_insert \
+    --disassemble-symbols=raw_vec_u32_insert,raw_vec_pair_insert,raw_vec_u32_remove,raw_vec_pair_remove \
     target/riscv32imc-unknown-none-elf/release/examples/raw_vec
 ```
 
@@ -61,10 +61,38 @@ two stores. Register allocation also differs: the length is in `a4`, the loop
 counter in `a6`, and the moved pair passes through `a7` and `t0`. Append takes
 15 instructions and insertion before `m > 0` pairs takes `19 + 8m`.
 
+Removal ([raw_vec_remove.rs](linked/raw_vec_remove.rs)) is one generic
+`RawVec<T>::remove` with a forward copy loop and the same two instances. It
+is compiled the same way into a separate object, linked after the insertion
+routines so that it does not move them. `raw_vec_u32_remove` has 23
+instructions and `raw_vec_pair_remove` 25. Both keep the length in `a3`, walk a
+pointer in `a1` up to an end pointer in `a3`, and differ only in the shift
+(2 or 3), the pointer step (4 or 8), and the extra load and store for the pair's
+second word. Removing the last element takes 9 instructions, and removing
+before `m > 0` later elements takes `15 + 4m` (`u32`) or `15 + 6m` (`Pair`).
+Invalid length and invalid index take 5 and 6. The words are recorded in
+[raw_vec_u32_remove.words](linked/raw_vec_u32_remove.words) and
+[raw_vec_pair_remove.words](linked/raw_vec_pair_remove.words).
+
+The removal test case, [src/cases/raw_vec_remove.rs](../../src/cases/raw_vec_remove.rs),
+is written once for both element types and takes the routine as a function
+pointer, so a harness without compressed instructions can pass the routines
+themselves.
+
 On an ESP32-C3 revision v0.4, the demo printed:
 
 ```text
 RawVec<u32> PASS: [10, 20, 30, 40]; statuses [0, 0, 1, 2]; invalid length rejected
+```
+
+On November 26, 2026, the build with both removal routines printed, on the
+same board:
+
+```text
+RawVec<u32> PASS: [10, 20, 30, 40]; statuses [0, 0, 1, 2]; invalid length rejected
+RawVec<Pair> PASS: [(10, 100), (20, 200), (30, 300), (40, 400)]; statuses [0, 0, 1, 2]; invalid length rejected
+RawVec<u32> remove PASS: [10, 20, 30, 40] -> [30] -> []; statuses [0, 0, 0, 2, 0, 2]; invalid length rejected
+RawVec<Pair> remove PASS: [(10, 100), ..., (40, 400)] -> [(30, 300)] -> []; statuses [0, 0, 0, 2, 0, 2]; invalid length rejected
 ```
 
 The demo now calls the routine through the shim in

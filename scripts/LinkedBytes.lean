@@ -2,6 +2,8 @@ import Popcount
 import PopcountSwar
 import RawVec.Shim
 import RawVec.PairInsert
+import RawVec.U32Remove
+import RawVec.PairRemove
 import Riscfree.Elf
 
 /-!
@@ -23,7 +25,8 @@ Each check compares the raw bytes of a linked routine with the instruction
 words of the table its proof decodes (see `proof/Riscfree/Elf.lean`):
 
 * `popcount`, `popcount-swar`: the two popcount routines.
-* `raw-vec`: `raw_vec_u32_insert` and `raw_vec_pair_insert`.
+* `raw-vec`: `raw_vec_u32_insert`, `raw_vec_pair_insert`, `raw_vec_u32_remove`,
+  and `raw_vec_pair_remove`.
 * `raw-vec-shim`: the u32 calling shim, and that its `call` reaches the
   routine exactly `routineOffset` bytes ahead.
 * `uncompressed`: the file has no compressed instructions, as the QEMU harness
@@ -57,6 +60,8 @@ def runCheck : String → String → IO Unit
   | "raw-vec", path => do
     verifyElf path "raw_vec_u32_insert" (RawVec.instructions.map Prod.fst)
     verifyElf path "raw_vec_pair_insert" (RawVec.PairInsert.instructions.map Prod.fst)
+    verifyElf path "raw_vec_u32_remove" (RawVec.U32Remove.instructions.map Prod.fst)
+    verifyElf path "raw_vec_pair_remove" (RawVec.PairRemove.instructions.map Prod.fst)
   | "raw-vec-shim", path => checkRawVecShim path
   | "uncompressed", path => verifyUncompressed path
   | check, _ => throw (IO.userError s!"unknown linked-byte check {check}")

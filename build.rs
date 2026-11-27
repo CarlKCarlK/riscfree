@@ -12,7 +12,10 @@ fn main() {
     }
 
     let shims = "examples/raw_vec_call.S";
-    println!("cargo:rerun-if-changed={shims}");
+    let remove_shims = "examples/raw_vec_remove_call.S";
+    for source in [shims, remove_shims] {
+        println!("cargo:rerun-if-changed={source}");
+    }
     assert_eq!(
         env::var("TARGET").expect("Cargo sets TARGET"),
         "riscv32imc-unknown-none-elf",
@@ -21,23 +24,38 @@ fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
     let manifest =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"));
+    let linked = Path::new("research/vec-ffi/linked");
 
     // The shims get their own object, linked directly before the routines, so
     // the linker's single `.text` rule places them next to each other. Each
     // shim's `call` offset then depends only on these two objects, not on the
     // demo's code. The proof of the u32 shim records that offset.
-    let shim_source = out.join("raw_vec_shims.rs");
+    //
+    // The removal routines and their shims follow in two more objects, so
+    // adding them moved neither the insertion routines nor that offset.
+    let objects = [
+        assemble(&out, &manifest, shims, "raw_vec_shims"),
+        compile::routine_object(linked, "raw_vec"),
+        compile::routine_object(linked, "raw_vec_remove"),
+        assemble(&out, &manifest, remove_shims, "raw_vec_remove_shims"),
+    ];
+    for object in objects {
+        println!("cargo:rustc-link-arg-examples={}", object.display());
+    }
+}
+
+// Wrap an assembly file in a `no_std` crate and compile it to `<name>.o`.
+fn assemble(out: &Path, manifest: &Path, shims: &str, name: &str) -> PathBuf {
+    let source = out.join(format!("{name}.rs"));
     fs::write(
-        &shim_source,
+        &source,
         format!(
             "#![no_std]\ncore::arch::global_asm!(include_str!({:?}));\n",
             manifest.join(shims)
         ),
     )
-    .expect("write the RawVec shim crate");
-    let shim_object = out.join("raw_vec_shims.o");
-    compile::compile(&shim_source, &shim_object);
-    let routine_object = compile::raw_vec_object(Path::new("research/vec-ffi/linked"));
-    println!("cargo:rustc-link-arg-examples={}", shim_object.display());
-    println!("cargo:rustc-link-arg-examples={}", routine_object.display());
+    .unwrap_or_else(|error| panic!("write {}: {error}", source.display()));
+    let object = out.join(format!("{name}.o"));
+    compile::compile(&source, &object);
+    object
 }

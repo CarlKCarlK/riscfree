@@ -54,7 +54,7 @@ def image : Model.Image where
   word := Model.tableWord 0x400 instructions
   keys := List.range' 0x1000 132
 
-def frame (call : Call) : Machine := Model.frame image call
+def frame (call : Call) : Machine := Model.frame image (.ofInsert call)
 
 def initial (call : Call) : Snapshot :=
   { a0 := call.header, a1 := call.index, a2 := call.value.key, a3 := call.value.value }
@@ -73,9 +73,9 @@ private theorem dataFree : ∀ index, 0xc00 ≤ index → image.word index = non
   fun _ above => tableWordOutside 0x400 instructions (Or.inr (by have := routineLength; omega))
 
 private theorem modelMode (call : Call) : MachineMode (machine call) returnTo :=
-  Model.modelMode call codeBase _ (by decide)
+  Model.modelMode (.ofInsert call) codeBase _ (by decide)
 
-private theorem routineImage {state : Machine} {call : Call} (modeled : Modeled image call state) :
+private theorem routineImage {state : Machine} {call : Call} (modeled : Modeled image (.ofInsert call) state) :
     CodeImage instructions codeBase state :=
   tableImage modeled instructions codeBase 0x1000 rfl (by decide) (by decide)
     (fun index bound byte small => by change index < 33 at bound; simp [image]; omega)
@@ -87,7 +87,7 @@ theorem modelHypotheses (small : length.toNat ≤ 1000) :
   let modeled := syncModeled _ codeBase _
   ⟨(syncSync _ _).symm, rfl, rfl, rfl, rfl, Environment.ofMachine (modelMode _) (routineImage modeled),
     Model.modelHeader modeled dataFree,
-    Model.modelBuffer modeled dataFree (by decide) (by rw [pairBytes]; omega)⟩
+    fun _ => Model.modelBuffer modeled dataFree (by decide) (by rw [pairBytes]; omega)⟩
 
 end Model
 

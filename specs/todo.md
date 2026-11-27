@@ -12,7 +12,8 @@ application below needs it. When one does, add the general lemma under
 ## 1. Insertion into `RawVec<Pair>`
 
 Status: proved (`proof/RawVec/PairInsert.lean`); the cost is recorded in
-`docs/rawvec-pair-cost.md`. The board run of the extended demo is pending.
+`docs/rawvec-pair-cost.md`. The extended demo passed on the board on
+November 26, 2026 (`research/vec-ffi/README.md`).
 
 Verify `raw_vec_pair_insert`, the same generic `RawVec<T>::insert` in
 `research/vec-ffi/linked/raw_vec.rs` with `T = Pair` (two `u32` words, 8 bytes).
@@ -38,9 +39,14 @@ in the commit message or a short note in `docs/`:
 
 ## 2. Vector removal
 
-Verify a bounded `remove` (shift the suffix left, decrement the length, return
-the removed element or a status). Reuse whatever item 1 generalized, and record
-the same cost measurements.
+Status: proved for `u32` and `Pair` (`proof/RawVec/U32Remove.lean`,
+`proof/RawVec/PairRemove.lean`) on the shared layer `proof/RawVec/Remove.lean`,
+with nonvacuity on every path, and passed on the board and under a scratch copy
+of the QEMU harness. The routine returns a status, not the removed element.
+The cost is recorded in `docs/rawvec-remove-cost.md`.
+
+- When the QEMU harness (branch `emulator-research`) reaches `main`, add
+  `src/cases/raw_vec_remove.rs` to it, calling the two routines directly.
 
 ## 3. Minimal ordered map with linear search
 
@@ -73,13 +79,18 @@ Do these only when an application above needs them:
   `auipc`/`jalr` words and `routineOffset`. A proof parameterized by the
   offset would remove even that update.
 - Prove the pair routine's calling shim, ideally by making `Shim.lean`
-  generic over the routine it calls.
+  generic over the routine it calls. The two removal shims would follow from
+  the same generic proof.
+- Share the call record, `Header`, and slot arithmetic between
+  `RawVec/Insert.lean` and `RawVec/Remove.lean` (about 60 duplicated lines).
+  This would change the insertion theorems' statements, so do it together with
+  an update of `Compatibility.lean`.
 
 ## Deferred build-time work
 
 Measured on the 32-thread development machine with everything built:
-`just prove` takes about 78 s (axiom audit 18 s, `axiom-paths` 47 s,
-linked-byte checks 8 s). A clean build of the project's proofs takes about
+`just prove` took about 78 s before the removal proofs (axiom audit 18 s,
+`axiom-paths` 47 s, linked-byte checks 8 s) and about 110 s with them. A clean build of the project's proofs takes about
 1,116 s, of which `DecoderNormalForm` takes 949 s.
 
 - Split each future routine's step lemmas into several independent modules

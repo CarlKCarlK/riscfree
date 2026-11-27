@@ -13,6 +13,8 @@ import sys
 ROUTINES = [
     ("raw_vec_u32_insert", "raw_vec_u32.words"),
     ("raw_vec_pair_insert", "raw_vec_pair.words"),
+    ("raw_vec_u32_remove", "raw_vec_u32_remove.words"),
+    ("raw_vec_pair_remove", "raw_vec_pair_remove.words"),
 ]
 
 

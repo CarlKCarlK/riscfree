@@ -1,8 +1,9 @@
-# What the RawVec insertion proof establishes
+# What the RawVec proofs establish
 
 This note records what `rawVecU32InsertSailCorrect` (in
 [proof/RawVec.lean](../proof/RawVec.lean)) depends on: its axioms and the
-premises it assumes. It also lists what is still trusted.
+premises it assumes. It also lists what is still trusted. Later sections cover
+the pair routine and the two removal routines, which follow the same pattern.
 
 ## Axioms
 
@@ -167,6 +168,51 @@ refactoring added no premise and weakened no conclusion.
 The demo calls the pair routine through `call_raw_vec_pair_insert`, a copy of
 the `u32` shim. That shim is not proved.
 
+## The removal routines
+
+`rawVecU32RemoveSailCorrect` and `rawVecPairRemoveSailCorrect`, each with an
+`InMachineMode` form (in [proof/RawVec/U32Remove.lean](../proof/RawVec/U32Remove.lean)
+and [proof/RawVec/PairRemove.lean](../proof/RawVec/PairRemove.lean)), verify the
+two instances of `RawVec<T>::remove`. They reach the same 72 axioms as the
+insertion theorems, and `just axiom-paths` checks each one's executed path
+against the same seven expected axioms. The routines use the same seven
+instruction formats as insertion, so the table above applies unchanged.
+
+The specification, premises, and loop invariant are in
+[proof/RawVec/Remove.lean](../proof/RawVec/Remove.lean). `Remove.Header` is the
+same as insertion's. `Remove.Buffer` differs because removal touches a
+different footprint:
+
+- The elements after the removed one must be readable, and the slots from the
+  index up to the new length writable. No permission is required for the
+  removed slot's own read, for the vacated last slot, or for spare capacity.
+- Only the written slots must miss the header and the code. A successful call
+  therefore needs one slot fewer than insertion, and none of the capacity.
+- The elements must fit in the address space up to the old length:
+  `data + size * length <= 2 ^ 32`. The loop ends when its pointer equals the
+  end pointer `data + size * length`. When that sum is exactly `2 ^ 32` the end
+  pointer wraps to 0, and `Remove.slotReached` shows that no earlier pointer
+  equals it, so the bound is not stronger than the code needs.
+
+The conclusion is pointwise, like insertion's: each slot below the new length
+holds `result`, the old sequence without the removed element, and
+`unchanged` allows only the length word and the slots from the index to the
+new length to change. The vacated last slot keeps its old element.
+
+[proof/RawVec/U32Remove/Nonvacuity.lean](../proof/RawVec/U32Remove/Nonvacuity.lean)
+and [proof/RawVec/PairRemove/Nonvacuity.lean](../proof/RawVec/PairRemove/Nonvacuity.lean)
+show the premises of both theorems hold on the routine's four paths: shift
+(removing index 1 of 4, 23 and 27 instructions), last (9), invalid length (5),
+and invalid index (6). A fifth witness, an empty vector, takes the
+invalid-index path. They use the shared model in
+[proof/RawVec/Model.lean](../proof/RawVec/Model.lean), now stated over the
+vector's contents so that insertion and removal calls both instantiate it.
+
+The demo calls the removal routines through `call_raw_vec_u32_remove` and
+`call_raw_vec_pair_remove` in
+[examples/raw_vec_remove_call.S](../examples/raw_vec_remove_call.S), copies of
+the insertion shim. These shims are not proved.
+
 ## Calling shim
 
 The Rust demo calls `call_raw_vec_u32_insert`, the seven-instruction shim in
@@ -231,12 +277,12 @@ The pinned Sail configuration sets `hartSupports Ext_Zca` to `false`.
 target with bit 1 set, whatever `misa.C` says. The Rust caller is compiled for
 `riscv32imc`, so its return address can have bit 1 set. The ESP32-C3 implements
 the C extension and returns there correctly. In the linked demo, the five calls
-return to `0x42013b00`, `0x42013b12`, `0x42013b24`, `0x42013b36`, and
-`0x42013b78`. Two of them have bit 1 set. For those two, the final `ret` is
+return to `0x42013e60`, `0x42013e72`, `0x42013e84`, `0x42013e96`, and
+`0x42013ed8`. Two of them have bit 1 set. For those two, the final `ret` is
 the only instruction outside the formal guarantee. Covering it would need a Sail
 configuration with Zca, which in turn means verifying the compressed caller.
 The QEMU harness ([emulator.md](emulator.md)) avoids the question: it is
-compiled without compressed instructions and calls both routines directly, so
+compiled without compressed instructions and calls all four routines directly, so
 every return address is word-aligned.
 
 ## Remaining trusted base

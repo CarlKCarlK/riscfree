@@ -9,7 +9,7 @@ The proofs, their premises, and the hardware harness are unchanged.
 just prove            # Unchanged: proofs, then the linked-byte checks for both environments
 just emulate          # Bit-loop popcount under QEMU
 just emulate swar     # SWAR popcount under QEMU
-just emulate-raw-vec  # RawVec<u32> and RawVec<Pair> insertion, all five outcomes each, under QEMU
+just emulate-raw-vec  # RawVec<u32> and RawVec<Pair> insertion and removal, every outcome, under QEMU
 ```
 
 Expected output:
@@ -20,8 +20,12 @@ popcount_swar(0xd3a57c1902efb6489d306a17c2f5804b) = 61
 emulator/target/riscv32im-unknown-none-elf/release/examples/raw_vec: no compressed instructions (EF_RISCV_RVC clear)
 raw_vec_u32_insert: verified all 120 linked bytes (30 instructions)
 raw_vec_pair_insert: verified all 132 linked bytes (33 instructions)
+raw_vec_u32_remove: verified all 92 linked bytes (23 instructions)
+raw_vec_pair_remove: verified all 100 linked bytes (25 instructions)
 RawVec<u32> PASS: [10, 20, 30, 40]; statuses [0, 0, 1, 2]; invalid length rejected
 RawVec<Pair> PASS: [(10, 100), (20, 200), (30, 300), (40, 400)]; statuses [0, 0, 1, 2]; invalid length rejected
+RawVec<u32> remove PASS: [10, 20, 30, 40] -> [30] -> []; statuses [0, 0, 0, 2, 0, 2]; invalid length rejected
+RawVec<Pair> remove PASS: [(10, 100), ..., (40, 400)] -> [(30, 300)] -> []; statuses [0, 0, 0, 2, 0, 2]; invalid length rejected
 ```
 
 Each run exits with status 0 on success, 1 on a failed assertion, and 2 on an
@@ -65,8 +69,8 @@ prove` builds the QEMU harness but does not run it, so it does not need QEMU.
 | --- | --- | --- |
 | Rust target | `riscv32imc-unknown-none-elf` | `riscv32im-unknown-none-elf` |
 | `popcount128`, `popcount128_swar` | assembled from `src/popcount*.S` | the same sources |
-| `raw_vec_u32_insert`, `raw_vec_pair_insert` | `raw_vec.rs`, compiled by rustc for `riscv32im` at `opt-level=1` | the same command |
-| RawVec caller | through the shims in `examples/raw_vec_call.S` | calls the routines directly |
+| `raw_vec_u32_insert`, `raw_vec_pair_insert`, `raw_vec_u32_remove`, `raw_vec_pair_remove` | `raw_vec.rs` and `raw_vec_remove.rs`, compiled by rustc for `riscv32im` at `opt-level=1` | the same commands |
+| RawVec caller | through the shims in `examples/raw_vec_call.S` and `examples/raw_vec_remove_call.S` | calls the routines directly |
 | Code addresses | flash, near `0x4200_0000` | RAM, from `0x8000_0000` |
 | Return addresses | may have bit 1 set | always word-aligned |
 
@@ -74,7 +78,8 @@ The routines' bytes are identical in both environments, but their addresses
 differ. The proofs are stated for any code base address. `just prove` checks
 each environment's ELF against the same Lean instruction tables: the 56 bytes
 of `popcount128`, the 112 bytes of `popcount128_swar`, the 120 bytes of
-`raw_vec_u32_insert`, and the 132 bytes of `raw_vec_pair_insert`. Two files that each match the same table match each
+`raw_vec_u32_insert`, the 132 bytes of `raw_vec_pair_insert`, the 92 bytes of
+`raw_vec_u32_remove`, and the 100 bytes of `raw_vec_pair_remove`. Two files that each match the same table match each
 other, so the emulator executes exactly the bytes that Lean verifies.
 `just emulate-raw-vec` also runs `check_elf.py`, the quick Python version
 of the RawVec checks, before starting QEMU.
@@ -119,18 +124,17 @@ The QEMU harness is compiled entirely for `riscv32im`. Every instruction is a
 32-bit word in a word-aligned section, so every `jal` or `jalr` leaves a
 word-aligned return address. That is exactly the premise the pinned Sail model
 needs for each routine's final `ret`. The ESP32-C3 demo uses the shims only to
-satisfy that premise, so the QEMU harness calls `raw_vec_u32_insert` and
-`raw_vec_pair_insert` directly. In the current build, the ten calls return to
-`0x80002e90`, `0x80002ea8`, `0x80002ec0`, `0x80002ed8`, and `0x80002f3c`
-(u32), and `0x80003050`, `0x8000306c`, `0x80003088`, `0x800030a4`, and
-`0x8000310c` (pair).
+satisfy that premise, so the QEMU harness calls the four RawVec routines
+directly. In the current build, all 24 call sites (5 for each insertion
+routine and 7 for each removal routine) return to word-aligned addresses.
 
-So under QEMU, all ten calls meet the return-address premise of
-`rawVecU32InsertSailCorrect` and `rawVecPairInsertSailCorrect`, whose
+So under QEMU, every call meets the return-address premise of
+`rawVecU32InsertSailCorrect`, `rawVecPairInsertSailCorrect`,
+`rawVecU32RemoveSailCorrect`, and `rawVecPairRemoveSailCorrect`, whose
 guarantees extend through the routine's `ret`. The popcount calls meet the
 same premise of their theorems. On the board, the final shim `ret` of two
-`RawVec<u32>` calls is trusted to the hardware, and the pair shim has no
-proof. The other premises, listed in [rawvec-assurance.md](rawvec-assurance.md),
+`RawVec<u32>` insertion calls is trusted to the hardware, and the pair and
+removal shims have no proof. The other premises, listed in [rawvec-assurance.md](rawvec-assurance.md),
 remain trusted in both environments.
 
 QEMU's CPU runs with the C extension disabled (`-cpu rv32,c=false`), as in the
@@ -157,7 +161,7 @@ cases do not move the u32 shim's verified `call` offset (0xbc).
 - QEMU is not the ESP32-C3. It models a generic RV32 hart and executes each
   instruction by translating it to host code. Its agreement with the Sail
   model is tested, not proved.
-- Passing runs show that these ten calls and two popcounts behave as
+- Passing runs show that these 24 RawVec calls and two popcounts behave as
   expected on QEMU. The guarantee for all inputs still comes only from the
   Lean theorems.
 - The memory facts, such as disjoint header and buffer and initialized

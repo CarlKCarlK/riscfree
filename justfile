@@ -14,7 +14,7 @@ check:
 build:
     cargo build --locked --release
 
-# Build the ESP32-C3 RawVec demo and check the linked insertion instructions of both routines.
+# Build the ESP32-C3 RawVec demo and check the linked instructions of all four routines.
 build-raw-vec:
     cargo build --locked --release --example raw_vec --features raw-vec-demo
     python3 research/vec-ffi/linked/check_elf.py target/riscv32imc-unknown-none-elf/release/examples/raw_vec
@@ -27,7 +27,7 @@ run-raw-vec: build-raw-vec
 emulate algorithm="loop":
     cd emulator && cargo run --locked --release {{ if algorithm == "loop" { "" } else if algorithm == "swar" { "--features swar" } else { error("algorithm must be loop or swar") } }}
 
-# Build the QEMU RawVec harness and check its linked insertion instructions and that it has no compressed code.
+# Build the QEMU RawVec harness and check the linked instructions of all four routines and that it has no compressed code.
 build-emulator-raw-vec:
     cd emulator && cargo build --locked --release --example raw_vec
     python3 research/vec-ffi/linked/check_elf.py --uncompressed {{emulator_release}}/examples/raw_vec
@@ -59,6 +59,8 @@ prove:
         '"reject-popcount-swar", "{{linked}}/negative/popcount-swar.elf",' \
         '"reject-raw-vec", "{{linked}}/negative/raw-vec-u32.elf",' \
         '"reject-raw-vec", "{{linked}}/negative/raw-vec-pair.elf",' \
+        '"reject-raw-vec", "{{linked}}/negative/raw-vec-u32-remove.elf",' \
+        '"reject-raw-vec", "{{linked}}/negative/raw-vec-pair-remove.elf",' \
         '"reject-raw-vec-shim", "{{linked}}/negative/raw-vec-shim.elf",' \
         '"reject-uncompressed", "{{linked}}/negative/emulator-rvc.elf"' \
         ']'; } | lake env lean -DwarningAsError=true --stdin
@@ -69,6 +71,10 @@ axiom-paths:
         Riscfree.RawVec.callRawVecU32InsertSailCorrect {{ axiom-path-flags }}
     lake env lean --run scripts/AxiomPaths.lean RawVec.PairInsert \
         Riscfree.RawVec.PairInsert.rawVecPairInsertSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RawVec.U32Remove \
+        Riscfree.RawVec.U32Remove.rawVecU32RemoveSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RawVec.PairRemove \
+        Riscfree.RawVec.PairRemove.rawVecPairRemoveSailCorrect {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \
@@ -105,5 +111,7 @@ corrupt-linked:
     python3 scripts/corrupt_elf.py flip {{linked}}/emulator-popcount-swar.elf popcount128_swar {{linked}}/negative/popcount-swar.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec raw_vec_u32_insert {{linked}}/negative/raw-vec-u32.elf
     python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec raw_vec_pair_insert {{linked}}/negative/raw-vec-pair.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec raw_vec_u32_remove {{linked}}/negative/raw-vec-u32-remove.elf
+    python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec raw_vec_pair_remove {{linked}}/negative/raw-vec-pair-remove.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec call_raw_vec_u32_insert {{linked}}/negative/raw-vec-shim.elf
     python3 scripts/corrupt_elf.py rvc {{emulator_release}}/examples/raw_vec {{linked}}/negative/emulator-rvc.elf
