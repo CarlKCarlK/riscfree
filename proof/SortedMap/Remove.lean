@@ -438,7 +438,10 @@ end Run
 
 /-! ## Guarantees -/
 
-theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machine) (call : Call)
+/-- The run as a snapshot: the routine returns with the saved registers
+restored and the status in `a0`. Composing callers continue from this
+snapshot. -/
+theorem sortedMapRemoveSailRun (base returnAddress : Word) (original : Machine) (call : Call)
     (initial : Snapshot)
     (entry : original = sync base original { initial with pc := 0 })
     (headerArgument : initial.a0 = call.header)
@@ -448,19 +451,19 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
     (stack : Stack base original call initial.sp)
     (keys : call.lengthValid → 0 < call.length.toNat → Search.Keys original call.search)
     (buffer : call.removes → PairRemove.Buffer (vectorBase base) original call.vector) :
-    ∃ final, run call.count original = some final ∧
-      final.regs.get? Register.PC = some returnAddress ∧
-      final.regs.get? Register.x10 = some call.status ∧
-      (¬ call.removes → final.mem = pushed original.mem initial.sp initial) ∧
+    ∃ (state : Snapshot) (memory : ByteMemory),
+      run call.count original = some (sync base { original with mem := memory } state) ∧
+      state.pc = returnAddress - base ∧ state.a0 = call.status ∧
+      state.ra = initial.ra ∧ state.sp = initial.sp ∧ state.s0 = initial.s0 ∧
+      state.s1 = initial.s1 ∧ state.s2 = initial.s2 ∧
+      (¬ call.removes → memory = pushed original.mem initial.sp initial) ∧
       (call.removes →
-        WordAt final.mem call.header.toNat call.data ∧
-        WordAt final.mem (call.header.toNat + 4) (BitVec.ofNat 32 (call.length.toNat - 1)) ∧
-        WordAt final.mem (call.header.toNat + 8) call.capacity ∧
+        WordAt memory call.header.toNat call.data ∧
+        WordAt memory (call.header.toNat + 4) (BitVec.ofNat 32 (call.length.toNat - 1)) ∧
+        WordAt memory (call.header.toNat + 8) call.capacity ∧
         (∀ index, index < call.length.toNat - 1 →
-          PairAt final.mem (call.vector.slot index) (call.vector.result index)) ∧
-        call.vector.unchanged (pushed original.mem initial.sp initial) final.mem) ∧
-      (∀ register ∉ [Register.PC, .nextPC, .x6, .x10, .x11, .x12, .x13, .x14, .x15],
-        final.regs.get? register = original.regs.get? register) := by
+          PairAt memory (call.vector.slot index) (call.vector.result index)) ∧
+        call.vector.unchanged (pushed original.mem initial.sp initial) memory) := by
   let memory := pushed original.mem initial.sp initial
   have machine := environment.mode.toMachineState
   have fits := stack.fits
@@ -500,29 +503,35 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
   have returning (state : Snapshot) (atEpilogue : state.pc = 0x78#32)
       (frame : state.sp = frameBase initial.sp) (status : state.a0 = call.status)
       (count : Nat) (ran : run count (sync base original { initial with pc := 0 }) =
-        some (sync base { original with mem := memory } state)) (total : count + 6 = call.count) :
-      ∃ final, run call.count original = some final ∧
-        final.regs.get? Register.PC = some returnAddress ∧
-        final.regs.get? Register.x10 = some call.status ∧ final.mem = memory ∧
-        (∀ register ∉ [Register.PC, .nextPC, .x6, .x10, .x11, .x12, .x13, .x14, .x15],
-          final.regs.get? register = original.regs.get? register) := by
+        some (sync base { original with mem := memory } state)) (total : count + 6 = call.count)
+      (notRemoves : ¬ call.removes) :
+      ∃ (state : Snapshot) (memory : ByteMemory),
+        run call.count original = some (sync base { original with mem := memory } state) ∧
+        state.pc = returnAddress - base ∧ state.a0 = call.status ∧
+        state.ra = initial.ra ∧ state.sp = initial.sp ∧ state.s0 = initial.s0 ∧
+        state.s1 = initial.s1 ∧ state.s2 = initial.s2 ∧
+        (¬ call.removes → memory = pushed original.mem initial.sp initial) ∧
+        (call.removes →
+          WordAt memory call.header.toNat call.data ∧
+          WordAt memory (call.header.toNat + 4) (BitVec.ofNat 32 (call.length.toNat - 1)) ∧
+          WordAt memory (call.header.toNat + 8) call.capacity ∧
+          (∀ index, index < call.length.toNat - 1 →
+            PairAt memory (call.vector.slot index) (call.vector.result index)) ∧
+          call.vector.unchanged (pushed original.mem initial.sp initial) memory) := by
     have finish := epilogue environment initial stack returnArgument state atEpilogue frame
     let done : Snapshot :=
       { state with
         pc := returnAddress - base, ra := initial.ra, s0 := initial.s0, s1 := initial.s1,
         s2 := initial.s2, sp := initial.sp }
-    refine ⟨sync base { original with mem := memory } done, ?_,
-      pcReadReturned base returnAddress _ done rfl, ?_, syncMem _,
-      frameRegisters base original initial entry memory done rfl rfl rfl rfl rfl⟩
-    · rw [← total, runAdd, (congrArg (run count) entry).trans ran, Option.bind_some, finish]
-    · rw [readA0]
-      exact congrArg some status
+    refine ⟨done, memory, ?_, rfl, status, rfl, rfl, rfl, rfl, rfl, fun _ => rfl,
+      fun removes => (notRemoves removes).elim⟩
+    rw [← total, runAdd, (congrArg (run count) entry).trans ran, Option.bind_some, finish]
   by_cases lengthValid : call.lengthValid
   case neg =>
     -- `length > capacity`: `li a0, 3`, `j`, and the epilogue.
     have notRemoves : ¬ call.removes := fun removes => lengthValid removes.1
     have branch : ¬ call.length.toNat ≤ call.capacity.toNat := lengthValid
-    obtain ⟨final, ran, pc, status, mem, registers⟩ := returning
+    exact returning
       { checked with pc := 0x78#32, a0 := 3#32 } rfl rfl
       (by simp [Call.status, lengthValid]) 10 (by
         rw [show 10 = 5 + (2 + 3) from rfl, runAdd, begun, Option.bind_some, runAdd, checking,
@@ -530,8 +539,7 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
         refine runStep (step1c machine image _ rfl) ?_
         simp only [checked, branch, if_false]
         exact runStep (step20 machine image _ rfl) (runStep (step24 machine image _ rfl) rfl))
-      (by simp [Call.count, lengthValid])
-    exact ⟨final, ran, pc, status, fun _ => mem, fun removes => (notRemoves removes).elim, registers⟩
+      (by simp [Call.count, lengthValid]) notRemoves
   -- The search call.
   have branch : call.length.toNat ≤ call.capacity.toNat := lengthValid
   let calling : Snapshot := { checked with pc := 0x28#32 }
@@ -566,7 +574,7 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
     have taken : compared.s1.toNat ≤ compared.a1.toNat := by
       show call.length.toNat ≤ back.a0.toNat
       rw [positionWord, positionNat]; omega
-    obtain ⟨final, ran, pc, status, mem, registers⟩ := returning
+    exact returning
       { compared with pc := 0x78#32 } rfl rfl
       (by simp [Call.status, lengthValid, notRemoves]; rfl) (8 + (4 + call.search.count .lower) + 3) (by
         rw [runAdd, toBack, Option.bind_some, show 3 = 2 + 1 from rfl, runAdd, toCompare,
@@ -574,8 +582,7 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
         refine runStep (step40 machine image _ rfl) ?_
         rw [if_pos taken]
         rfl)
-      (by simp [Call.count, lengthValid, notRemoves, inside]; omega)
-    exact ⟨final, ran, pc, status, fun _ => mem, fun removes => (notRemoves removes).elim, registers⟩
+      (by simp [Call.count, lengthValid, notRemoves, inside]; omega) notRemoves
   -- The key comparison at the position.
   have given := keys lengthValid (by omega)
   have notTaken : ¬ compared.s1.toNat ≤ compared.a1.toNat := by
@@ -625,15 +632,14 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
     have differs : ¬ loaded.a3 = loaded.s0 := by
       show ¬ (call.old call.position).key = back.s0
       rw [backKey]; exact keyMatches
-    obtain ⟨final, ran, pc, status, mem, registers⟩ := returning
+    exact returning
       { loaded with pc := 0x78#32 } rfl rfl
       (by simp [Call.status, lengthValid, notRemoves]; rfl) (8 + (4 + call.search.count .lower) + 7 + 1) (by
         rw [runAdd, toLoadedAll, Option.bind_some]
         refine runStep (step54 machine image _ rfl) ?_
         rw [if_neg differs]
         rfl)
-      (by simp [Call.count, lengthValid, notRemoves, inside]; omega)
-    exact ⟨final, ran, pc, status, fun _ => mem, fun removes => (notRemoves removes).elim, registers⟩
+      (by simp [Call.count, lengthValid, notRemoves, inside]; omega) notRemoves
   -- The key matches: restore the frame and tail-call `raw_vec_pair_remove`.
   have removes : call.removes := ⟨lengthValid, inside, keyMatches⟩
   have same : loaded.a3 = loaded.s0 := by
@@ -719,36 +725,73 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
   have total : call.count = 8 + (4 + call.search.count .lower) + 7 + 9 + call.vector.count := by
     simp only [Call.count, lengthValid, removes, if_true, not_true_eq_false, if_false]
     omega
-  refine ⟨_, ?_, pcReadReturned (vectorBase base) returnAddress { entered with mem := vectorMemory }
-      endState endPc, ?_, fun notRemoves => (notRemoves removes).elim,
-    fun _ => ?_, fun register outside => ?_⟩
+  -- Express the vector routine's end state in this routine's snapshot.
+  let merged : Snapshot :=
+    { jumped with
+      pc := returnAddress - base, a0 := endState.a0, a1 := endState.a1, a2 := endState.a2,
+      a3 := endState.a3, a4 := endState.a4, a5 := endState.a5 }
+  have resynced : sync (vectorBase base) { entered with mem := vectorMemory } endState =
+      sync base { original with mem := vectorMemory } merged := by
+    have withMem := syncWithMem base { original with mem := memory } jumped vectorMemory
+    have inside := syncInside (frame := { original with mem := vectorMemory }) base (vectorBase base)
+      jumped merged endState vectorInside (fun index _ => by fin_cases index <;> rfl) (by
+        change base + (returnAddress - base) = vectorBase base + endState.pc
+        rw [endPc, BitVec.add_comm base, BitVec.sub_add_cancel, BitVec.add_comm (vectorBase base),
+          BitVec.sub_add_cancel])
+    change sync (vectorBase base) { sync base { original with mem := memory } jumped with
+      mem := vectorMemory } endState = _
+    rw [withMem]
+    exact inside
+  refine ⟨merged, vectorMemory, ?_, rfl, ?_, rfl, rfl, rfl, rfl, rfl,
+    fun notRemoves => (notRemoves removes).elim, fun _ => ?_⟩
   · rw [total, runAdd, runAdd, (congrArg (run _) entry).trans toLoadedAll, Option.bind_some, toJump,
-      Option.bind_some]
+      Option.bind_some, ← resynced]
     exact vectorRan
-  · have read : (sync (vectorBase base) { entered with mem := vectorMemory } endState).regs.get?
-        Register.x10 = some endState.a0 := readReg_succ.mp (syncRead endState (index := 10) (by decide))
-    have capacityOk : ¬ call.vector.capacity.toNat < call.vector.length.toNat := by
+  · have capacityOk : ¬ call.vector.capacity.toNat < call.vector.length.toNat := by
       change ¬ call.capacity.toNat < call.length.toNat; exact Nat.not_lt.mpr lengthValid
     have indexOk : ¬ call.vector.length.toNat ≤ call.vector.index.toNat := by
       rw [call.vectorIndex]; change ¬ call.length.toNat ≤ call.position; omega
-    rw [read, vectorStatus, RawVec.Remove.Call.status, if_neg capacityOk, if_neg indexOk]
+    change endState.a0 = call.status
+    rw [vectorStatus, RawVec.Remove.Call.status, if_neg capacityOk, if_neg indexOk]
     simp [Call.status, lengthValid, removes]
   · obtain ⟨data, length, capacity, entries, unchanged⟩ := accepted valid
-    rw [syncMem]
     rw [enteredMem] at unchanged
     exact ⟨data, length, capacity, entries, unchanged⟩
-  · have untracked : register ∉ [Register.PC, .nextPC, .x10, .x11, .x12, .x13, .x14, .x15] := by
-      simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at outside ⊢
-      exact ⟨outside.1, outside.2.1, outside.2.2.2⟩
-    simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at untracked
-    obtain ⟨pc, next, a0, a1, a2, a3, a4, a5⟩ := untracked
-    rw [syncFrame endState register pc next (by
-      intro index member
-      change index ∈ ([10, 11, 12, 13, 14, 15] : List (Fin 32)) at member
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-      rcases member with rfl | rfl | rfl | rfl | rfl | rfl
-      exacts [Ne.symm a0, Ne.symm a1, Ne.symm a2, Ne.symm a3, Ne.symm a4, Ne.symm a5])]
-    exact frameRegisters base original initial entry memory jumped rfl rfl rfl rfl rfl register outside
+
+theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machine) (call : Call)
+    (initial : Snapshot)
+    (entry : original = sync base original { initial with pc := 0 })
+    (headerArgument : initial.a0 = call.header)
+    (keyArgument : initial.a1 = call.key)
+    (environment : Environment base returnAddress original)
+    (header : RawVec.Remove.Header original call.vector)
+    (stack : Stack base original call initial.sp)
+    (keys : call.lengthValid → 0 < call.length.toNat → Search.Keys original call.search)
+    (buffer : call.removes → PairRemove.Buffer (vectorBase base) original call.vector) :
+    ∃ final, run call.count original = some final ∧
+      final.regs.get? Register.PC = some returnAddress ∧
+      final.regs.get? Register.x10 = some call.status ∧
+      (¬ call.removes → final.mem = pushed original.mem initial.sp initial) ∧
+      (call.removes →
+        WordAt final.mem call.header.toNat call.data ∧
+        WordAt final.mem (call.header.toNat + 4) (BitVec.ofNat 32 (call.length.toNat - 1)) ∧
+        WordAt final.mem (call.header.toNat + 8) call.capacity ∧
+        (∀ index, index < call.length.toNat - 1 →
+          PairAt final.mem (call.vector.slot index) (call.vector.result index)) ∧
+        call.vector.unchanged (pushed original.mem initial.sp initial) final.mem) ∧
+      (∀ register ∉ [Register.PC, .nextPC, .x6, .x10, .x11, .x12, .x13, .x14, .x15],
+        final.regs.get? register = original.regs.get? register) := by
+  obtain ⟨state, memory, ran, pc, status, ra, sp, s0, s1, s2, rejected, accepted⟩ :=
+    sortedMapRemoveSailRun base returnAddress original call initial entry headerArgument keyArgument
+      environment header stack keys buffer
+  refine ⟨_, ran, pcReadReturned base returnAddress _ state pc, ?_, fun notRemoves => ?_,
+    fun removes => ?_, frameRegisters base original initial entry memory state ra sp s0 s1 s2⟩
+  · rw [readA0]
+    exact congrArg some status
+  · rw [syncMem]
+    exact rejected notRemoves
+  · rw [syncMem]
+    exact accepted removes
 
 /-! ## Against the mathematical map
 

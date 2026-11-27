@@ -27,9 +27,11 @@ def verifyElfSymbol (path symbol : String) (words : List (BitVec 32)) : IO Nat :
   let symbols ← IO.Process.run { cmd := "nm", args := #["-S", "--defined-only", path] }
   let sections ← IO.Process.run { cmd := "objdump", args := #["-h", "-j", ".text", path] }
   let symbolRows := (symbols.splitOn "\n").map columns
-  let [[addressText, sizeText, "T", _]] :=
+  let [[addressText, sizeText, symbolKind, _]] :=
     symbolRows.filter (fun row => row.getLast? == some symbol)
     | throw (IO.userError s!"Expected one {symbol} text symbol")
+  unless symbolKind == "T" || symbolKind == "t" do
+    throw (IO.userError s!"Expected {symbol} to be a text symbol")
   let [(_ :: ".text" :: sectionSizeText :: baseText :: _ :: offsetText :: _)] :=
     (sections.splitOn "\n").map columns |>.filter (fun row => row[1]? == some ".text")
     | throw (IO.userError "Expected one .text section")

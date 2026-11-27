@@ -22,6 +22,12 @@ pub fn routine_object(linked_directory: &Path, name: &str) -> PathBuf {
         "cargo:rerun-if-changed={}",
         linked_directory.join("compile.rs").display()
     );
+    if name == "range_insert" {
+        println!(
+            "cargo:rerun-if-changed={}",
+            linked_directory.join("range_insert_algorithm.rs").display()
+        );
+    }
     let object = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"))
         .join(format!("{name}.o"));
     compile(&source, &object);

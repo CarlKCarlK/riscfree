@@ -14,7 +14,8 @@ fn main() {
     let shims = "examples/raw_vec_call.S";
     let remove_shims = "examples/raw_vec_remove_call.S";
     let map_shims = "examples/sorted_map_call.S";
-    for source in [shims, remove_shims, map_shims] {
+    let range_shim = "examples/range_insert_call.S";
+    for source in [shims, remove_shims, map_shims, range_shim] {
         println!("cargo:rerun-if-changed={source}");
     }
     assert_eq!(
@@ -42,6 +43,8 @@ fn main() {
         compile::routine_object(linked, "raw_vec"),
         compile::routine_object(linked, "raw_vec_remove"),
         compile::routine_object(linked, "sorted_map"),
+        compile::routine_object(linked, "range_insert"),
+        assemble(&out, &manifest, range_shim, "range_insert_shim"),
         assemble(&out, &manifest, remove_shims, "raw_vec_remove_shims"),
         assemble(&out, &manifest, map_shims, "sorted_map_shims"),
     ];

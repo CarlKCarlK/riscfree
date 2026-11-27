@@ -14,7 +14,7 @@ check:
 build:
     cargo build --locked --release
 
-# Build the ESP32-C3 demo and verify the RawVec and sorted-map routines.
+# Build the ESP32-C3 demo and check the linked collection and range insertion routines.
 build-raw-vec:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -23,10 +23,10 @@ build-raw-vec:
     lake build
     {
         cat scripts/LinkedBytes.lean
-        printf '%s\n' '#eval linkedBytes ["sorted-map", "{{firmware_release}}/examples/raw_vec"]'
+        printf '%s\n' '#eval linkedBytes ["range-insert", "{{firmware_release}}/examples/raw_vec", "range-insert-shim", "{{firmware_release}}/examples/raw_vec", "sorted-map", "{{firmware_release}}/examples/raw_vec"]'
     } | lake env lean -DwarningAsError=true --stdin
 
-# Flash the checked demo and print its six UART test results.
+# Flash the checked demo and print its UART test results.
 run-raw-vec: build-raw-vec
     espflash flash --monitor {{firmware_release}}/examples/raw_vec
 
@@ -47,7 +47,7 @@ emulate-raw-vec: build-emulator-raw-vec
 prove:
     python3 scripts/check_proof_sources.py
     lake build
-    lake env lean --run scripts/AxiomAudit.lean
+    lake env lean --run scripts/AxiomAudit.lean $(python3 scripts/check_proof_sources.py --dependency-modules)
     just axiom-paths
     just build-linked
     just corrupt-linked
@@ -63,6 +63,10 @@ prove:
         '"uncompressed", "{{linked}}/emulator-popcount-swar.elf",' \
         '"raw-vec", "{{emulator_release}}/examples/raw_vec",' \
         '"sorted-map", "{{emulator_release}}/examples/raw_vec",' \
+        '"range-insert", "{{emulator_release}}/examples/raw_vec",' \
+        '"reject-range-insert", "{{linked}}/negative/range-insert.elf",' \
+        '"reject-range-insert", "{{linked}}/negative/range-insert-call.elf",' \
+        '"reject-range-insert-shim", "{{linked}}/negative/range-insert-shim.elf",' \
         '"uncompressed", "{{emulator_release}}/examples/raw_vec",' \
         '"reject-popcount", "{{linked}}/negative/popcount.elf",' \
         '"reject-popcount-swar", "{{linked}}/negative/popcount-swar.elf",' \
@@ -94,9 +98,26 @@ axiom-paths:
         Riscfree.SortedMap.Remove.sortedMapRemoveSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
     lake env lean --run scripts/AxiomPaths.lean SortedMap.Insert \
         Riscfree.SortedMap.Insert.sortedMapInsertSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Empty \
+        Riscfree.RangeInsert.Empty.Premises.run {{ empty-range-axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Contained \
+        Riscfree.RangeInsert.Nonempty.ContainedPremises.run {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.DeleteExtra.Helper \
+        Riscfree.RangeInsert.DeleteExtra.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Extension.Run \
+        Riscfree.RangeInsert.Nonempty.ExtensionPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Fresh.Run \
+        Riscfree.RangeInsert.Nonempty.FreshPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Correct \
+        Riscfree.RangeInsert.Nonempty.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Theorem \
+        Riscfree.RangeInsert.Nonempty.InsertionPremises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \
+    prepend("--expect ", "propext Quot.sound Classical.choice load_reservation match_reservation plat_term_write sys_enable_experimental_extensions")
+empty-range-axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
+    prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE JALR") + " " + \
     prepend("--expect ", "propext Quot.sound Classical.choice load_reservation match_reservation plat_term_write sys_enable_experimental_extensions")
 
 # Optional: replay every proof module through Lean's kernel with leanchecker's replay. Not part of `prove`.
@@ -104,7 +125,8 @@ axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
 # all jobs share. With 16 jobs, physical memory in use peaked at 21 GB (5 GB idle).
 kernel-check jobs="16":
     lake build
-    find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g' | sort | \
+    { find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g'; \
+        python3 scripts/check_proof_sources.py --dependency-modules; } | sort | \
         xargs -P {{ jobs }} -I {} sh -c '/usr/bin/time -f "replayed {} in %e s, peak %M KB" lake env lean --run scripts/KernelCheck.lean {} > /dev/null'
 
 # Build every firmware and QEMU ELF file that `prove` checks.
@@ -137,4 +159,27 @@ corrupt-linked:
     python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec sorted_map_upper_bound {{linked}}/negative/sorted-map-upper-bound.elf
     python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec sorted_map_remove {{linked}}/negative/sorted-map-remove.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec sorted_map_insert {{linked}}/negative/sorted-map-insert.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec range_insert_u32 {{linked}}/negative/range-insert.elf
+    python3 scripts/corrupt_elf.py flip-at {{emulator_release}}/examples/raw_vec range_insert_u32 0x4b {{linked}}/negative/range-insert-call.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec call_range_insert_u32 {{linked}}/negative/range-insert-shim.elf
     python3 scripts/corrupt_elf.py rvc {{emulator_release}}/examples/raw_vec {{linked}}/negative/emulator-rvc.elf
+
+# Exercise the host production collections through the same insertion body.
+test-range-insert-host:
+    mkdir -p {{linked}}
+    rustc --edition 2024 --test research/vec-ffi/linked/range_insert_host.rs -o {{linked}}/range-insert-host
+    {{linked}}/range-insert-host
+
+# Both exhausted insertions must take the illegal-instruction trap in QEMU.
+test-range-insert-exhaustion:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd emulator
+    for mode in range-map-full range-scratch-full; do
+        result=0
+        output=$(cargo run --locked --release --example raw_vec --features "$mode" 2>&1) || result=$?
+        printf '%s\n' "$output"
+        test "$result" -eq 2
+        [[ "$output" == *"Range insertion PASS"* ]]
+        [[ "$output" == *"FAIL: trap mcause=0x00000002"* ]]
+    done
