@@ -80,6 +80,18 @@ word-aligned return addresses required by this Sail model. The sorted-map
 wrappers are exercised by the hardware harness and remain outside these
 theorems.
 
+## ESP32-C3 test
+
+All six cases passed on the physical ESP32-C3. The demo reported successful
+insertion and removal for both `RawVec<u32>` and `RawVec<Pair>`, followed
+by `SortedMap search PASS` and `SortedMap update PASS`.
+
+Run `just run-raw-vec` from the repository root with the board connected.
+Its `build-raw-vec` prerequisite checks the linked firmware's RawVec bytes
+and runs the Lean ELF checker on all four sorted-map routines, including
+the call targets of insertion and removal. Flashing starts after those
+checks pass.
+
 ## Verification effort
 
 The bounds share a single scan model and correctness proof, parameterized

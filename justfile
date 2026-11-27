@@ -14,14 +14,21 @@ check:
 build:
     cargo build --locked --release
 
-# Build the ESP32-C3 RawVec demo and check the linked instructions of all four routines.
+# Build the ESP32-C3 demo and verify the RawVec and sorted-map routines.
 build-raw-vec:
+    #!/usr/bin/env bash
+    set -euo pipefail
     cargo build --locked --release --example raw_vec --features raw-vec-demo
-    python3 research/vec-ffi/linked/check_elf.py target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    python3 research/vec-ffi/linked/check_elf.py {{firmware_release}}/examples/raw_vec
+    lake build
+    {
+        cat scripts/LinkedBytes.lean
+        printf '%s\n' '#eval linkedBytes ["sorted-map", "{{firmware_release}}/examples/raw_vec"]'
+    } | lake env lean -DwarningAsError=true --stdin
 
-# Flash the checked RawVec demo and print its UART assertions.
+# Flash the checked demo and print its six UART test results.
 run-raw-vec: build-raw-vec
-    espflash flash --monitor target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    espflash flash --monitor {{firmware_release}}/examples/raw_vec
 
 # Run one popcount routine under QEMU instead of on the board: `just emulate` (bit loop) or `just emulate swar`.
 emulate algorithm="loop":

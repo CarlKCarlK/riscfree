@@ -292,6 +292,9 @@ rustup target add riscv32imc-unknown-none-elf riscv32im-unknown-none-elf
 cargo install espflash --locked
 ```
 
+The RawVec and SortedMap demo also needs Elan, Python 3, and GNU binutils
+for the pre-flash checks.
+
 In WSL 2, attach the board with `hey attach-esp` if the global recipe is installed.
 
 ```bash
@@ -299,7 +302,7 @@ just check     # Type-check the firmware
 just build     # Build release firmware
 just run       # Build, flash, and open the serial monitor (bit loop)
 just run swar  # Same, but call the SWAR routine in src/popcount_swar.S
-just run-raw-vec   # Build, verify the bytes, flash, and monitor RawVec
+just run-raw-vec   # Verify RawVec and SortedMap in the built ELF, then flash and monitor
 just prove         # Check all proofs and every verified routine's linked bytes
 just kernel-check  # Optional: replay every proof module through the kernel
 ```
