@@ -297,7 +297,7 @@ private theorem modelPremises (stop : Word) (accepted : Nat) (bound : accepted �
       Model.writable modeled (address := 0x2114) (by decide) (by decide), by model_decide,
       Model.readable modeled (address := 0x2120) (by decide) (by decide), Model.readable modeled (address := 0x2124) (by decide) (by decide),
       Model.readable modeled (address := 0x2128) (by decide) (by decide), Model.writable modeled (address := 0x2124) (by decide) (by decide),
-      ?_, fun index inside => scratchWritable stop (by omega), ?_, Or.inl (by model_decide), Or.inl (by model_decide), bound⟩
+      ?_, fun index inside => scratchWritable stop (by omega), ?_, Or.inl (by model_decide), ?_, bound⟩
     · intro byte low high written
       have := codeBelow (Or.inl ⟨low, high⟩)
       have := scanRegion stop bound written
@@ -316,6 +316,11 @@ private theorem modelPremises (stop : Word) (accepted : Nat) (bound : accepted �
       right
       rw [scratchGeometry]
       change 0x2120 + 12 ≤ _
+      omega
+    · intro index _
+      right
+      rw [scratchGeometry]
+      change 0x2110 + 8 ≤ _
       omega
   have drain : DrainLayout base (machine stop) spec 3 (spec.after accepted) scratch accepted
       (frameBase stackTop) (machine stop).mem := by

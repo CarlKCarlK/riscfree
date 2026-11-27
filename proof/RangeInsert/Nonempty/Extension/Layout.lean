@@ -1,4 +1,4 @@
-import RangeInsert.Nonempty.Extension
+import RangeInsert.Nonempty.Layout
 import RangeInsert.Nonempty.Correspondence
 
 namespace Riscfree.RangeInsert.Nonempty
@@ -56,5 +56,39 @@ theorem ExtensionCalling.helperArguments {base : Word} {initial : Snapshot} {cal
   ⟨a0.trans (calling.mapRef.trans (congrArg (· + 4#32) calling.sp)),
     a1.trans calling.cache, a2.trans calling.start, a3.trans calling.stop,
     a4.trans (calling.keys.trans (congrArg (· + 8#32) calling.sp))⟩
+
+theorem InitialLayout.extensionPrefix {base returnAddress : Word} {original : Machine}
+    {initial : Empty.Snapshot} {call : Call} {capacity low high : Word}
+    (layout : InitialLayout base original initial call capacity low high)
+    (entry : original = sync base original { initial with pc := 0 })
+    (link : initial.ra = returnAddress) (mode : MachineMode original returnAddress)
+    (arguments : Arguments initial call) (nonempty : call.start.toNat ≤ call.stop.toNat)
+    (found : 0 < call.rank) (touches : call.start.toNat ≤ call.predecessor.value.toNat + 1)
+    (grows : call.predecessor.value.toNat < call.stop.toNat) :
+    ExtensionPrefix base returnAddress original initial call low high := by
+  have mapLength := layout.map.lengthFits
+  have rankBound := call.rank_le
+  have indexIn : call.rank - 1 < call.length.toNat := by omega
+  have indexFits : call.rank - 1 < capacity.toNat := by omega
+  refine ⟨layout.outerFrame entry link mode, arguments, layout.predecessorMap, nonempty, found, touches, grows,
+    layout.cache.fits, ?_, layout.cache.low, layout.cache.high, layout.cache.readable.1, layout.cache.readable.2,
+    layout.cache.writable.1, layout.cache.writable.2, (layout.map.pairsWritable _ indexFits).2,
+    layout.stack.scratchWritable, ?_, ?_⟩
+  · intro byte first last
+    exact stackDisjointOuter layout.stack.fits (layout.apart.cacheStack byte ⟨first, last⟩)
+  · intro byte first last
+    have codeApart := layout.apart.code _ (List.mem_cons_self ..)
+    have cacheAway := codeApart.2.2.1 byte ⟨first, last⟩
+    have mapAway := codeApart.2.1 byte ⟨first, last⟩
+    change ¬ (initial.a1.toNat ≤ byte ∧ byte < initial.a1.toNat + 8) at cacheAway
+    constructor
+    · omega
+    · by_contra inside
+      push_neg at inside
+      exact mapAway (layout.map.entryContained indexIn (by omega) inside.2)
+  · intro byte first last
+    have apart := layout.apart.mapCache byte (layout.map.entryContained indexIn first (by omega))
+    change ¬ (initial.a1.toNat ≤ byte ∧ byte < initial.a1.toNat + 8) at apart
+    omega
 
 end Riscfree.RangeInsert.Nonempty

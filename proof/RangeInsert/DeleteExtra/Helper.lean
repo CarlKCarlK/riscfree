@@ -310,7 +310,7 @@ theorem Premises.throughExtension {base returnAddress : Word} {original : Machin
       · intro index bound
         have low : scratch.slot 0 ≤ scratch.slot index := by unfold Scratch.slot; omega
         have high : scratch.slot index + 4 ≤ scratch.slot accepted := by unfold Scratch.slot; omega
-        have cacheSlots := layout.cacheApartSlots
+        have cacheSlots := layout.cacheApartSlots index bound
         have endSlots := intervalApart (first := call.search.slot call.position + 4) (width := 4)
           (other := scratch.slot index) (otherWidth := 4) (by decide) (by decide) (by
             intro byte left right inside

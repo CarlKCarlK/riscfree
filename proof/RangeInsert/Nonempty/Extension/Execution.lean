@@ -12,7 +12,7 @@ open Riscfree.RV32
 open Riscfree.RawVec (Word)
 open Empty (Snapshot)
 
-private theorem ExtensionPrefix.writesAway {base returnAddress : Word} {original : Machine}
+theorem ExtensionPrefix.writesAway {base returnAddress : Word} {original : Machine}
     {initial : Snapshot} {call : Call} {low high : Word}
     (premises : ExtensionPrefix base returnAddress original initial call low high)
     (byte : Nat)

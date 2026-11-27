@@ -199,8 +199,21 @@ checked run from the helper's return takes 10 instructions through the
 common epilogue. A concrete machine extends `4..=9` with `10..=11` and
 checks the prefix through the helper call.
 
-The remaining extension work is to construct the helper's layout from
-the caller's memory and connect the returned entries and cache to the
-mathematical model. The fresh path can reuse the sorted-map insertion
-theorem's return snapshot. The full fresh path and unified mathematical
-theorem for successful machine execution remain open.
+The common initial layout names the linked code images, map allocation,
+scratch allocation, cached cardinality, stack space, and disjoint regions.
+It derives the caller-prefix assumptions for extension and fresh
+insertion. A concrete machine with all nine linked images witnesses
+adjacent extension and both fresh cases. The two fresh prefixes reach
+the sorted-map insertion call after 30 or 41 instructions plus
+upper-bound search.
+
+The helper's entry, scan, and removal premises can be derived from the
+same layout populated with the helper's input words. The helper code,
+cache, and shifted entries stay within their separate allocations. The
+nested stack geometry uses at most 112 bytes for the uncompressed
+routines. For a map with `n` entries and `k` accepted successors, the
+helper's instruction count is at most `83 + 5n + k(102 + 11n)`.
+
+The remaining work connects the actual extension and fresh callers'
+writes to the helper layout and discharges the full paths' mathematical
+correspondence and final-state guarantees.

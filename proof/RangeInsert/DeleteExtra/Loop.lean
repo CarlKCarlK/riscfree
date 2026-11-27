@@ -153,7 +153,8 @@ structure Layout (base : Word) (original : Machine) (call : Call) (scratch : Scr
   slotsApartHeader : ∀ index < accepted, scratch.slot index + 4 ≤ call.keys.toNat ∨
     call.keys.toNat + 12 ≤ scratch.slot index
   cacheApartHeader : call.cache.toNat + 8 ≤ call.keys.toNat ∨ call.keys.toNat + 12 ≤ call.cache.toNat
-  cacheApartSlots : call.cache.toNat + 8 ≤ scratch.slot 0 ∨ scratch.slot accepted ≤ call.cache.toNat
+  cacheApartSlots : ∀ index < accepted,
+    scratch.slot index + 4 ≤ call.cache.toNat ∨ call.cache.toNat + 8 ≤ scratch.slot index
   capacity : accepted ≤ scratch.capacity.toNat
 
 /-- A scan layout stated for one memory holds for another that agrees on both
@@ -275,7 +276,6 @@ theorem scan {base returnAddress : Word} {original : Machine} {initial : Snapsho
         (apart : address + 4 ≤ call.cache.toNat ∨ call.cache.toNat + 8 ≤ address) :
         WordAt (stored before state next.key next.value) address value :=
       word.congr fun byte low high => storedOutside byte (by omega)
-    have slotsApart := layout.cacheApartSlots
     have headerApart := layout.cacheApartHeader
     have dataApart : call.keys.toNat + 4 ≤ call.cache.toNat ∨ call.cache.toNat + 8 ≤ call.keys.toNat := by
       omega
@@ -283,9 +283,7 @@ theorem scan {base returnAddress : Word} {original : Machine} {initial : Snapsho
         call.cache.toNat + 8 ≤ call.keys.toNat + 4 := by omega
     have capacityApart : call.keys.toNat + 8 + 4 ≤ call.cache.toNat ∨
         call.cache.toNat + 8 ≤ call.keys.toNat + 8 := by omega
-    have slotApart (j : Nat) (bound : j < accepted) :
-        scratch.slot j + 4 ≤ call.cache.toNat ∨ call.cache.toNat + 8 ≤ scratch.slot j := by
-      unfold Scratch.slot at slotsApart ⊢; omega
+    have slotApart := layout.cacheApartSlots
     have header : RawVec.Header { original with mem := stored before state next.key next.value }
         vector := by
       refine ⟨keysFits, Nonempty.mappedTransfer layout.keysLengthReadable rfl,
