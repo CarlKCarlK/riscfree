@@ -15,7 +15,7 @@ rev = "a7f9a0976e245aeef89c3f02c51ae85023207b53"
 [[require]]
 name = "range-set-blaze-vibe-validation"
 git = "https://github.com/CarlKCarlK/range-set-blaze-vibe-validation"
-rev = "d7837025ca5ed1ec74f35768ea12d97014dad249"
+rev = "09f0d01d148f2c18e86fe55ff543c8851a177842"
 
 [[lean_lib]]
 name = "Riscfree"
