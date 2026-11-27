@@ -1,6 +1,7 @@
 import SortedMap.Remove.Instructions
 import SortedMap.Search.Correct
 import RawVec.PairRemove
+import SortedMap.Entries
 
 /-!
 # `sorted_map_remove` is correct against Sail
@@ -748,5 +749,55 @@ theorem sortedMapRemoveSailCorrect (base returnAddress : Word) (original : Machi
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl
       exacts [Ne.symm a0, Ne.symm a1, Ne.symm a2, Ne.symm a3, Ne.symm a4, Ne.symm a5])]
     exact frameRegisters base original initial entry memory jumped rfl rfl rfl rfl rfl register outside
+
+/-! ## Against the mathematical map
+
+For a sorted map, the entries the removal leaves are the mathematical `erase`
+of the old entries, and a call that returns `ABSENT` is one for which `erase`
+changes nothing, so the key was not in the map.
+-/
+
+theorem sortedMapRemoveErases (call : Call) (sorted : Sorted (entriesOf call.old call.length.toNat)) :
+    (call.removes → entriesOf call.vector.result (call.length.toNat - 1) =
+        erase (entriesOf call.old call.length.toNat) call.key) ∧
+      (call.lengthValid → ¬ call.removes →
+        erase (entriesOf call.old call.length.toNat) call.key = entriesOf call.old call.length.toNat) := by
+  let length := call.length.toNat
+  let position := call.position
+  have le : position ≤ length := call.position_le
+  have split := lowerSplit call.key sorted
+  have backSorted := sorted_entriesFrom le sorted
+  have erased : erase (entriesOf call.old length) call.key =
+      entriesOf call.old position ++ dropHead (entriesFrom call.old position (length - position)) call.key := by
+    rw [entriesOf_split call.old le]
+    exact erase_split split backSorted
+  refine ⟨fun removes => ?_, fun lengthValid notRemoves => ?_⟩
+  · have inside := removes.2.1
+    rw [erased, show length - position = (length - position - 1) + 1 by omega, entriesFrom_succ,
+      dropHead, if_pos removes.2.2, entriesOf_split call.vector.result (show position ≤ length - 1 by omega)]
+    congr 1
+    · apply entriesOf_congr
+      intro index below
+      simp only [RawVec.Remove.Call.result, call.vectorIndex]
+      exact if_pos below
+    · rw [show length - 1 - position = length - position - 1 by omega]
+      unfold entriesFrom
+      apply List.map_congr_left
+      intro offset _
+      simp only [RawVec.Remove.Call.result, call.vectorIndex]
+      rw [if_neg (by omega)]
+      change call.old (position + offset + 1) = call.old (position + 1 + offset)
+      congr 1
+      omega
+  · rw [erased]
+    by_cases inside : position < length
+    · have differs : ¬ (call.old position).key = call.key := fun same =>
+        notRemoves ⟨lengthValid, inside, same⟩
+      rw [show length - position = (length - position - 1) + 1 by omega, entriesFrom_succ, dropHead,
+        if_neg differs, ← entriesFrom_succ, show length - position - 1 + 1 = length - position by omega,
+        ← entriesOf_split call.old le]
+    · rw [show length - position = 0 by omega]
+      simp [entriesFrom, dropHead, show position = length by omega]
+      rfl
 
 end Riscfree.SortedMap.Remove

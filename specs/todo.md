@@ -50,6 +50,10 @@ The cost is recorded in `docs/rawvec-remove-cost.md`.
 
 ## 3. Minimal ordered map with linear search
 
+Status: both bounds, insertion, and removal have Sail proofs and concrete
+nonvacuity witnesses on the `sorted-map` branch. See
+[the sorted-map proof and cost notes](../docs/sorted-map.md).
+
 Implement and verify the smallest ordered-map operations that RangeSetBlaze's
 insertion needs, over the bounded pair vector, using linear search: lower-bound
 lookup, insert, and remove. Keys are strictly increasing and unique. Keep the

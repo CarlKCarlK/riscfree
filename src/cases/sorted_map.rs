@@ -116,6 +116,8 @@ pub unsafe fn update(insert: Insert, remove: Remove, mut print: impl FnMut(Argum
         [entry(111), entry(10), entry(20), replaced, entry(40), entry(222)]
     );
 
+    // Take a fresh raw pointer after inspecting the backing array.
+    map.data = data[1..5].as_mut_ptr();
     let mut invalid = RawVec { length: 5, ..map };
     // SAFETY: The header is exclusive. Its length exceeds capacity, so these
     // calls return without accessing the backing array.

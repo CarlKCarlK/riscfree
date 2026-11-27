@@ -66,6 +66,8 @@ prove:
         '"reject-raw-vec-shim", "{{linked}}/negative/raw-vec-shim.elf",' \
         '"reject-sorted-map", "{{linked}}/negative/sorted-map-lower-bound.elf",' \
         '"reject-sorted-map", "{{linked}}/negative/sorted-map-upper-bound.elf",' \
+        '"reject-sorted-map", "{{linked}}/negative/sorted-map-remove.elf",' \
+        '"reject-sorted-map", "{{linked}}/negative/sorted-map-insert.elf",' \
         '"reject-uncompressed", "{{linked}}/negative/emulator-rvc.elf"' \
         ']'; } | lake env lean -DwarningAsError=true --stdin
 
@@ -81,6 +83,10 @@ axiom-paths:
         Riscfree.RawVec.PairRemove.rawVecPairRemoveSailCorrect {{ axiom-path-flags }}
     lake env lean --run scripts/AxiomPaths.lean SortedMap.Search.Correct \
         Riscfree.SortedMap.Search.sortedMapSearchSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean SortedMap.Remove \
+        Riscfree.SortedMap.Remove.sortedMapRemoveSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean SortedMap.Insert \
+        Riscfree.SortedMap.Insert.sortedMapInsertSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \
@@ -122,4 +128,6 @@ corrupt-linked:
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec call_raw_vec_u32_insert {{linked}}/negative/raw-vec-shim.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec sorted_map_lower_bound {{linked}}/negative/sorted-map-lower-bound.elf
     python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec sorted_map_upper_bound {{linked}}/negative/sorted-map-upper-bound.elf
+    python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec sorted_map_remove {{linked}}/negative/sorted-map-remove.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec sorted_map_insert {{linked}}/negative/sorted-map-insert.elf
     python3 scripts/corrupt_elf.py rvc {{emulator_release}}/examples/raw_vec {{linked}}/negative/emulator-rvc.elf
