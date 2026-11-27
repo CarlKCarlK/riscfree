@@ -204,6 +204,8 @@ structure ExtensionCalling (base : Word) (initial : Snapshot) (call : Call) (sta
   s3 : state.s3 = initial.a5
   s4 : state.s4 = initial.a4
   s5 : state.s5 = initial.a0
+  saved : state.s6 = initial.s6 ∧ state.s7 = initial.s7 ∧ state.s8 = initial.s8 ∧
+    state.s9 = initial.s9 ∧ state.s10 = initial.s10
 
 theorem ExtensionPrefix.toHelper {base returnAddress : Word} {original : Machine} {initial : Snapshot}
     {call : Call} {low high : Word}
@@ -322,7 +324,8 @@ theorem ExtensionPrefix.toHelper {base returnAddress : Word} {original : Machine
     refine runStep atTest ?_
     rw [show 24 = 11 + 13 by decide, runAdd, arithmetic, Option.bind_some, ← writes]
     exact entered
-  · exact ⟨rfl, regs.sp, rfl, rfl, regs.cached, rfl, regs.stop, rfl, regs.cached, regs.stop,
-      regs.scratchCapacity, regs.scratchData, regs.mapHeader⟩
+  · obtain ⟨_, _, _, _, s6, s7, s8, s9, s10⟩ := regs.untouched
+    exact ⟨rfl, regs.sp, rfl, rfl, regs.cached, rfl, regs.stop, rfl, regs.cached, regs.stop,
+      regs.scratchCapacity, regs.scratchData, regs.mapHeader, s6, s7, s8, s9, s10⟩
 
 end Riscfree.RangeInsert.Nonempty

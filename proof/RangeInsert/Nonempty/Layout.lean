@@ -36,6 +36,11 @@ def scratchAllocation (scratch : DeleteExtra.Scratch) : Span :=
 def stackAllocation (sp : Word) : Span := ⟨sp.toNat - 112, 112⟩
 def codeSpan (base : Word) (instructionCount : Nat) : Span := ⟨base.toNat, 4 * instructionCount⟩
 
+def WritableByte (initial : Empty.Snapshot) (call : Call) (capacity : Word) (byte : Nat) : Prop :=
+  (stackAllocation initial.sp).Contains byte ∨ (cacheWords initial.a1).Contains byte ∨
+    (scratchAllocation ⟨initial.a4, initial.a5⟩).Contains byte ∨
+    (mapHeader call).Contains byte ∨ (mapAllocation call capacity).Contains byte
+
 def helperBase (base : Word) : Word := base + extensionHelperOffset
 def mapInsertBase (base : Word) : Word := base + insertOffset
 

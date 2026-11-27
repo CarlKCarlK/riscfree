@@ -1,4 +1,4 @@
-import RangeInsert.Nonempty.Extension.Layout
+import RangeInsert.Nonempty.Extension.Run
 import RangeInsert.Nonempty.Fresh.Prefix
 import RawVec.Model
 
@@ -373,5 +373,27 @@ theorem adjacentReachesHelper :
   obtain ⟨state, reached, arguments⟩ := modelExtension.toHelper
   have initialRun := congrArg (run (58 + (call 10 11).search.count .upper)) (entry 10 11)
   exact ⟨state, initialRun.trans reached, arguments⟩
+
+private theorem adjacentSorted :
+    SortedMap.Sorted (SortedMap.entriesOf (call 10 11).old (call 10 11).length.toNat) := by
+  unfold SortedMap.Sorted
+  decide
+
+private theorem adjacentScratch :
+    ((call 10 11).extensionHelper (initial 10 11) 15 0).acceptCount ≤ (initial 10 11).a5.toNat := by
+  decide
+
+/-- The machine merges the first two ranges, keeps the third, and returns
+an accurate cache of 17 in exactly 276 instructions. -/
+theorem adjacentReturns :
+    ∃ final, run 276 (machine 10 11) = some final ∧
+      final.regs.get? Register.PC = some Model.returnTo ∧
+      WordAt final.mem 0x3004 2#32 ∧
+      PairAt final.mem 0x4000 ⟨4, 16⟩ ∧ PairAt final.mem 0x4008 ⟨20, 23⟩ ∧
+      WordAt final.mem 0x2500 17#32 ∧ WordAt final.mem 0x2504 0#32 := by
+  obtain ⟨final, ran, returned, effects, _, _⟩ :=
+    modelExtension.run (layout 10 11) adjacentSorted adjacentScratch
+  have ⟨lengthWord, entries, low, high, _, _, _, _⟩ := effects
+  exact ⟨final, ran, returned, lengthWord, entries 0 (by decide), entries 1 (by decide), low, high⟩
 
 end Riscfree.RangeInsert.Nonempty.Layout.Nonvacuity

@@ -41,6 +41,11 @@ structure FreshCalling (base : Word) (initial : Snapshot) (call : Call) (state :
   header : state.a0 = call.header
   start : state.a1 = call.start
   stop : state.a2 = call.stop
+  cache : state.s0 = initial.a1
+  savedStop : state.s1 = call.stop
+  savedStart : state.s2 = call.start
+  saved : state.s6 = initial.s6 ∧ state.s7 = initial.s7 ∧ state.s8 = initial.s8 ∧
+    state.s9 = initial.s9 ∧ state.s10 = initial.s10
 
 private theorem gapFlag {start stop : Word} (gap : stop.toNat + 1 < start.toNat) :
     Step.lessWord stop 0xffffffff#32 &&& Step.lessWord (stop + 1#32) start ≠ 0#32 := by
@@ -95,7 +100,8 @@ theorem FreshPrefix.toInsert {base returnAddress : Word} {original : Machine} {i
       branchNoPredecessor machine image before rfl zero
     have inserted := freshSetupFirst machine image state rfl (premises.setup (state := state) rfl)
     refine ⟨insertCalling base 0xd8#32 state state.s5, ?_,
-      rfl, ?_, rfl, premises.arguments.header, premises.arguments.start, premises.arguments.stop⟩
+      rfl, ?_, rfl, premises.arguments.header, premises.arguments.start, premises.arguments.stop, rfl,
+      premises.arguments.stop, premises.arguments.start, rfl, rfl, rfl, rfl, rfl⟩
     · rw [show insertionPrefixCount call = (19 + call.search.count .upper) + (1 + 10) by
         simp only [insertionPrefixCount, if_pos noPredecessor]; omega,
         runAdd, ran, Option.bind_some]
@@ -110,7 +116,7 @@ theorem FreshPrefix.toInsert {base returnAddress : Word} {original : Machine} {i
       branchGap machine image inspected facts.pc isGap
     have inserted := freshSetupGap machine image state rfl (premises.setup (state := state) facts.sp)
     refine ⟨insertCalling base 0xa4#32 state state.a0, ?_,
-      rfl, ?_, facts.sp, facts.header, facts.start, facts.stop⟩
+      rfl, ?_, facts.sp, facts.header, facts.start, facts.stop, facts.cached, facts.stop, facts.start, ?_⟩
     · rw [show insertionPrefixCount call = (33 + call.search.count .upper) + (1 + 7) by
         simp only [insertionPrefixCount, if_neg (Nat.ne_of_gt found)]; omega,
         runAdd, ran, Option.bind_some]
@@ -121,5 +127,6 @@ theorem FreshPrefix.toInsert {base returnAddress : Word} {original : Machine} {i
       rw [freshStored, ← same]
       exact runStep branch inserted
     · simp only [insertCalling, insertionReturn, if_neg (Nat.ne_of_gt found)]
+    · exact facts.untouched.2.2.2.2
 
 end Riscfree.RangeInsert.Nonempty

@@ -214,6 +214,15 @@ nested stack geometry uses at most 112 bytes for the uncompressed
 routines. For a map with `n` entries and `k` accepted successors, the
 helper's instruction count is at most `83 + 5n + k(102 + 11n)`.
 
-The remaining work connects the actual extension and fresh callers'
-writes to the helper layout and discharges the full paths' mathematical
-correspondence and final-state guarantees.
+The predecessor-extension theorem runs the linked caller and helper
+through the ABI return in exactly 68 instructions plus upper-bound
+search and the helper count. It derives the helper's input from the
+actual stores, preserves the ABI's saved registers, and preserves memory
+outside the declared writable regions. The adjacent-range machine
+returns `4..=16` and `20..=23` with cached cardinality 17 in 276
+instructions.
+
+The fresh path's sorted-map insertion environment has a checked spare
+slot and nested frame. Composing that call with the helper and the
+final cache addition, and connecting both modifying paths to the
+production mathematical model, remain open.
