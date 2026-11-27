@@ -8,6 +8,8 @@ use esp_println::println;
 
 #[path = "../research/vec-ffi/linked/header.rs"]
 mod header;
+#[path = "../src/cases/range_insert.rs"]
+mod range_insert_case;
 #[path = "../src/cases/raw_vec.rs"]
 mod raw_vec_case;
 #[path = "../src/cases/raw_vec_remove.rs"]
@@ -22,6 +24,14 @@ global_asm!(include_str!("../src/watchdog.S"));
 // The shims in `raw_vec_call.S` are assembled into their own object, linked
 // next to the routines (see `build.rs`).
 unsafe extern "C" {
+    fn call_range_insert_u32(
+        map: *mut RawVec<Pair>,
+        length: *mut u64,
+        start: u32,
+        end: u32,
+        scratch: *mut u32,
+        scratch_capacity: u32,
+    );
     fn call_raw_vec_u32_insert(vec: *mut RawVec<u32>, index: u32, value: u32) -> u32;
     fn call_raw_vec_pair_insert(vec: *mut RawVec<Pair>, index: u32, value: Pair) -> u32;
     // Removal shims, in `raw_vec_remove_call.S`.
@@ -59,6 +69,9 @@ fn main() -> ! {
             println!("{line}")
         });
     }
+    // SAFETY: The shim forwards the test's valid storage to the linked routine.
+    unsafe { range_insert_case::run(call_range_insert_u32) };
+    println!("Range insertion PASS");
     idle()
 }
 

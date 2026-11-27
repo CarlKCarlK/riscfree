@@ -9,6 +9,8 @@ license = "MIT OR Apache-2.0"
 [features]
 # Call the SWAR popcount instead of the bit loop.
 swar = []
+range-map-full = []
+range-scratch-full = []
 
 [profile.dev]
 panic = "abort"
