@@ -12,6 +12,9 @@ namespace Riscfree.RangeInsert.Nonempty
 open RangeSetBlazeValidation RangeSetBlazeValidation.IntRange RangeSetBlazeValidation.RangeSetBlaze
 open Riscfree.RawVec (Word Pair)
 open Riscfree.SortedMap (entriesOf Sorted)
+open LeanRV32D RV32IM
+open Riscfree.RV32
+open Empty (Snapshot)
 
 /-- A machine result represents a model result: the live entries are its
 ranges in order, and the two cache words hold its cached count. -/
@@ -277,5 +280,167 @@ theorem freshRepresents {set : RangeSetBlaze} {call : Call} {initial : Empty.Sna
       rw [cast, Int.toNat_natCast]
     rw [width, freshCacheValue _ _ _ (by rw [distance, finalValue, helperCache]; omega), distance]
     omega
+
+/-- Entries before the upper-bound rank start at or before `start`. -/
+theorem Call.belowRank (call : Call) : ∀ index < call.rank,
+    (call.old index).key.toNat ≤ call.start.toNat := by
+  intro index below
+  have passes := SortedMap.scan_passes (bound := .upper) (key := call.start) (old := call.old) 0
+    call.length.toNat index (Nat.zero_le _) below
+  simpa [SortedMap.Bound.passes] using passes
+
+/-- In a sorted map, entries from the upper-bound rank on start after `start`. -/
+theorem Call.fromRank {call : Call} (sorted : Sorted (entriesOf call.old call.length.toNat)) :
+    ∀ index, call.rank ≤ index → index < call.length.toNat →
+      call.start.toNat < (call.old index).key.toNat := by
+  intro index low high
+  have bounds := SortedMap.scan_bounds (bound := .upper) (key := call.start) (old := call.old) 0
+    call.length.toNat
+  have rankIs : call.rank = SortedMap.scan .upper call.start call.old 0 call.length.toNat := rfl
+  have early : SortedMap.scan .upper call.start call.old 0 call.length.toNat < 0 + call.length.toNat := by
+    rw [← rankIs]; omega
+  have stops := SortedMap.scan_stops (bound := .upper) (key := call.start) (old := call.old) 0
+    call.length.toNat early
+  simp only [SortedMap.Bound.passes, decide_eq_false_iff_not, Nat.not_le] at stops
+  rcases Nat.eq_or_lt_of_le low with same | later
+  · rw [← same]; exact stops
+  · exact Nat.lt_trans stops (SortedMap.sorted_entriesOf sorted later high)
+
+/-- On the fresh path no entry starts at `start`. -/
+theorem Call.freshAbsent {call : Call} (sorted : Sorted (entriesOf call.old call.length.toNat))
+    (ordered : ∀ index < call.length.toNat, (call.old index).key.toNat ≤ (call.old index).value.toNat)
+    (fresh : call.rank = 0 ∨ call.predecessor.value.toNat + 1 < call.start.toNat) :
+    ∀ index < call.length.toNat, (call.old index).key ≠ call.start := by
+  intro index inside same
+  have bound := call.rank_le
+  by_cases before : index < call.rank
+  · rcases fresh with zero | gap
+    · omega
+    · -- The predecessor is the last entry before the rank, and it ends before `start`.
+      have last : index ≤ call.rank - 1 := by omega
+      have keyOrder : (call.old index).key.toNat ≤ (call.predecessor).key.toNat := by
+        rcases Nat.eq_or_lt_of_le last with equal | earlier
+        · unfold Call.predecessor; rw [equal]
+        · exact Nat.le_of_lt (SortedMap.sorted_entriesOf sorted earlier (by omega))
+      have predecessorOrder := ordered (call.rank - 1) (by omega)
+      unfold Call.predecessor at gap keyOrder
+      rw [same] at keyOrder
+      omega
+  · have after := call.fromRank sorted index (by omega) inside
+    rw [same] at after
+    exact Nat.lt_irrefl _ after
+
+/-- The linked range insertion's premises: the machine at entry, its
+initial memory layout, a map that represents a canonical set, and an
+accurate cached count. Fresh insertion needs a spare map slot, and the
+deletion buffer has room for one key per map entry. -/
+structure InsertionPremises (base returnAddress : Word) (original : Machine)
+    (initial : Snapshot) (call : Call) (capacity low high : Word) (set : RangeSetBlaze) :
+    Prop where
+  entry : original = sync base original { initial with pc := 0 }
+  mode : MachineMode original returnAddress
+  arguments : Arguments initial call
+  layout : InitialLayout base original initial call capacity low high
+  represents : Represents set call
+  accurate : (BitVec.append high low).toNat = set.cardinality
+  spare : call.path = .fresh → call.length.toNat < capacity.toNat
+  scratchRoom : call.length.toNat ≤ initial.a5.toNat
+
+theorem InsertionPremises.toPremises {base returnAddress : Word} {original : Machine}
+    {initial : Snapshot} {call : Call} {capacity low high : Word} {set : RangeSetBlaze}
+    (premises : InsertionPremises base returnAddress original initial call capacity low high set) :
+    Premises base returnAddress original initial call capacity low high := by
+  refine ⟨premises.entry, premises.mode, premises.arguments, premises.layout,
+    premises.represents.sorted, premises.represents.ordered, premises.spare, fun fresh => ?_, fun _ => ?_⟩
+  · have bound := (call.freshHelper capacity initial low high).acceptCount_le
+    rw [call.freshHelperLength capacity initial low high (premises.spare fresh)] at bound
+    have := premises.scratchRoom
+    omega
+  · have bound := (call.extensionHelper initial low high).acceptCount_le
+    change _ ≤ call.length.toNat - _ at bound
+    have := premises.scratchRoom
+    omega
+
+set_option maxHeartbeats 2000000 in
+/-- On every path, the machine's result represents the production model's
+result for the stored set, its cached count, and the input range. -/
+theorem Call.resultRepresents {set : RangeSetBlaze} {call : Call} (initial : Snapshot)
+    {capacity low high : Word} (represents : Represents set call)
+    (accurate : (BitVec.append high low).toNat = set.cardinality)
+    (spare : call.path = .fresh → call.length.toNat < capacity.toNat) :
+    (call.result initial capacity low high).Represents
+      (internalAddProduction set (BitVec.append high low).toNat call.input) := by
+  have sorted := represents.sorted
+  have ordered := represents.ordered
+  by_cases empty : call.stop.toNat < call.start.toNat
+  · rw [Call.result, show call.path = .empty from if_pos empty]
+    have backwards : call.input.hi < call.input.lo := by
+      change (call.stop.toNat : Int) < call.start.toNat; exact_mod_cast empty
+    obtain ⟨ranges, cached⟩ := emptyModel set (BitVec.append high low).toNat call.input backwards
+    exact unchangedRepresents represents 19 low high _ ranges cached
+  have nonempty := Nat.le_of_not_gt empty
+  have fresh (select : call.path = .fresh)
+      (branch : call.rank = 0 ∨ (0 < call.rank ∧ call.predecessor.value.toNat + 1 < call.start.toNat)) :
+      (call.result initial capacity low high).Represents
+        (internalAddProduction set (BitVec.append high low).toNat call.input) := by
+    have absent := call.freshAbsent sorted ordered (branch.imp id And.right)
+    have freshModel : (set.ranges.takeWhile (fun nr => decide (nr.val.lo ≤ call.input.lo))).getLast? = none ∨
+        ∃ predecessor : NR,
+          (set.ranges.takeWhile (fun nr => decide (nr.val.lo ≤ call.input.lo))).getLast? = some predecessor ∧
+            predecessor.val.hi + 1 < call.input.lo := by
+      rcases branch with zero | ⟨found, gap⟩
+      · left
+        rw [represents.takeUpper, zero, List.take_zero]
+        rfl
+      · right
+        obtain ⟨predecessor, last, ends⟩ := modelPredecessor represents found
+        refine ⟨predecessor, last, ?_⟩
+        rw [ends]
+        change (call.predecessor.value.toNat : Int) + 1 < call.start.toNat
+        exact_mod_cast gap
+    rw [Call.result, select]
+    exact freshRepresents _ represents sorted ordered accurate nonempty absent (spare select)
+      (call.freshDoesNotReplace capacity absent) freshModel
+  by_cases none : call.rank = 0
+  · exact fresh (by simp only [Call.path, if_neg empty, if_pos none]) (Or.inl none)
+  have found := Nat.pos_of_ne_zero none
+  by_cases gap : call.predecessor.value.toNat + 1 < call.start.toNat
+  · exact fresh (by simp only [Call.path, if_neg empty, if_neg none, if_pos gap]) (Or.inr ⟨found, gap⟩)
+  by_cases grows : call.predecessor.value.toNat < call.stop.toNat
+  · have path : call.path = .extension := by
+      simp only [Call.path, if_neg empty, if_neg none, if_neg gap, if_pos grows]
+    rw [Call.result, path]
+    exact extensionRepresents _ represents sorted accurate nonempty found gap grows
+  · have path : call.path = .contained := by
+      simp only [Call.path, if_neg empty, if_neg none, if_neg gap, if_neg grows]
+    rw [Call.result, path]
+    have model := containedModel (BitVec.append high low).toNat represents nonempty found
+      (Nat.le_of_not_gt grows)
+    exact unchangedRepresents represents _ low high _ (by rw [model]) (by rw [model])
+
+/-- The linked range insertion returns to its caller after an exact number
+of instructions, preserves every register outside the caller-saved list and
+every byte it may not write, and stores the production model's result: the
+canonical union of the set and the input, with its cardinality cached. -/
+theorem InsertionPremises.run {base returnAddress : Word} {original : Machine}
+    {initial : Snapshot} {call : Call} {capacity low high : Word} {set : RangeSetBlaze}
+    (premises : InsertionPremises base returnAddress original initial call capacity low high set) :
+    let result := call.result initial capacity low high
+    let model := internalAddProduction set (BitVec.append high low).toNat call.input
+    ∃ final, Riscfree.RV32.run result.count original = some final ∧
+      final.regs.get? Register.PC = some returnAddress ∧
+      result.inMemory initial call final.mem ∧
+      (∀ key ∉ [Register.PC, .nextPC, .x5, .x6, .x10, .x11, .x12, .x13, .x14, .x15, .x16, .x17],
+        final.regs.get? key = original.regs.get? key) ∧
+      (∀ byte, ¬ WritableByte initial call capacity byte → final.mem[byte]? = original.mem[byte]?) ∧
+      result.Represents model ∧
+      model.setResult.toSet = set.toSet ∪ call.input.toSet ∧
+      model.cachedLength = model.setResult.cardinality := by
+  intro result model
+  obtain ⟨final, ran, returned, stored, regs, keep⟩ := premises.toPremises.run
+  have correct := internalAddProduction_correct set (BitVec.append high low).toNat call.input
+    premises.accurate
+  exact ⟨final, ran, returned, stored, regs, keep,
+    call.resultRepresents initial premises.represents premises.accurate premises.spare, correct⟩
 
 end Riscfree.RangeInsert.Nonempty

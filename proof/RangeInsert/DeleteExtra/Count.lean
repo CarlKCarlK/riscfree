@@ -22,6 +22,14 @@ def accepts (call : Call) (t : Nat) : Bool :=
 theorem acceptCount_eq (call : Call) :
     call.acceptCount = (call.candidates.takeWhile call.accepts).length := rfl
 
+/-- The scan accepts at most the successors left in the map. -/
+theorem acceptCount_le (call : Call) :
+    call.acceptCount ≤ call.length.toNat - (call.position + 1) := by
+  rw [acceptCount_eq]
+  have shorter := (List.takeWhile_sublist call.accepts (l := call.candidates)).length_le
+  unfold candidates at shorter
+  simpa using shorter
+
 /-- Every counted successor is in the map and starts within the limit. -/
 theorem accepted (call : Call) : ∀ t < call.acceptCount,
     call.position + 1 + t < call.length.toNat ∧ (call.successor t).key.toNat ≤ call.limit.toNat := by

@@ -233,6 +233,18 @@ return in 215 and 364 instructions with the expected map and count.
 and both fresh paths through one entry theorem. It gives the exact
 instruction count, returned ABI state, live entries and cache words,
 and preservation outside the declared writable regions. Concrete
-machines exercise every branch of this theorem. The general correspondence
-of the two modifying results with the imported mathematical model remains
-open.
+machines exercise every branch of this theorem.
+
+`RangeInsert.Nonempty.InsertionPremises.run` in `Theorem.lean` connects
+that result to the production model on every path. Its premises are the
+entry machine and layout, a map that represents a canonical set, an
+accurate cached count, a spare map slot for fresh insertion, and one
+deletion-buffer word per map entry. Sortedness, nonoverlap, and the exact
+helper scratch counts are derived from these premises. The conclusion adds
+three facts to the machine facts. The live entries are the ranges of
+`internalAddProduction`, and the cache words hold its cached count. That
+result is the union of the set and the input, and its count is its
+cardinality. `Layout/Nonvacuity.lean` satisfies these premises for every
+input range on a concrete machine holding `4..=9`, `12..=16`, and
+`20..=23` with cache 15. It also shows inputs that reach each successful
+branch and applies the theorem.

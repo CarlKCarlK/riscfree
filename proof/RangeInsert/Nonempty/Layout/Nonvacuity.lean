@@ -1,4 +1,5 @@
-import RangeInsert.Correct
+import RangeInsert.Theorem
+import RangeInsert.Nonempty.Contained.Nonvacuity
 import RawVec.Model
 
 /-! A machine with every linked image and the shared stack, cache, scratch,
@@ -463,5 +464,51 @@ theorem allBranches :
     fromLayout 10 11 .extension (by decide) (by decide) (by decide),
     fromLayout 1 2 .fresh (by decide) (by decide) (by decide),
     fromLayout 18 19 .fresh (by decide) (by decide) (by decide)⟩
+
+/-! ## The model premises
+
+The map holds the canonical set `threeRanges`, whose cardinality 15 is the
+cached count, so the natural premises hold for every input range. -/
+
+open Contained.Nonvacuity (threeRanges)
+
+private theorem representsThree (start stop : Word) : Represents threeRanges (call start stop) :=
+  show Represents threeRanges (call 0 0) by unfold Represents; decide +kernel
+
+private theorem accurateThree : (BitVec.append (0#32) (15#32)).toNat = threeRanges.cardinality := by
+  decide +kernel
+
+theorem insertionSatisfiable (start stop : Word) :
+    InsertionPremises base Model.returnTo (machine start stop) (initial start stop) (call start stop)
+      4 15 0 threeRanges :=
+  ⟨entry start stop, mode start stop, ⟨rfl, rfl, rfl⟩, layout start stop, representsThree start stop,
+    accurateThree, fun _ => of_decide_eq_true rfl, of_decide_eq_true rfl⟩
+
+/-- The unified model theorem's premises hold on a concrete machine for an
+input on every successful branch, including both causes of fresh
+insertion, so its conclusion is not vacuous. -/
+theorem modelOnEveryBranch :
+    (call 11 10).path = .empty ∧ (call 5 7).path = .contained ∧ (call 10 11).path = .extension ∧
+      (call 1 2).path = .fresh ∧ (call 18 19).path = .fresh ∧
+      ∀ start stop, InsertionPremises base Model.returnTo (machine start stop) (initial start stop)
+        (call start stop) 4 15 0 threeRanges :=
+  ⟨by decide, by decide, by decide, by decide, by decide, insertionSatisfiable⟩
+
+/-- The bundle invokes the unified theorem: on the concrete machine every
+input returns with a map that represents the production model's canonical
+union and a cache that holds its cardinality. -/
+theorem modelRuns (start stop : Word) :
+    let result := (call start stop).result (initial start stop) 4 15 0
+    let model := threeRanges.internalAddProduction 15 (call start stop).input
+    ∃ final, run result.count (machine start stop) = some final ∧
+      final.regs.get? Register.PC = some Model.returnTo ∧
+      result.inMemory (initial start stop) (call start stop) final.mem ∧
+      result.Represents model ∧
+      model.setResult.toSet = threeRanges.toSet ∪ (call start stop).input.toSet ∧
+      model.cachedLength = model.setResult.cardinality := by
+  intro result model
+  obtain ⟨final, ran, returned, stored, _, _, represents, union, cached⟩ :=
+    (insertionSatisfiable start stop).run
+  exact ⟨final, ran, returned, stored, represents, union, cached⟩
 
 end Riscfree.RangeInsert.Nonempty.Layout.Nonvacuity
