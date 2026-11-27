@@ -1,5 +1,4 @@
 import PopcountSpec
-import Riscfree.Elf
 import Riscfree.RV32.Decode
 import Riscfree.RV32.Platform
 
@@ -500,12 +499,6 @@ theorem popcount128SailCorrect (base : Word) (machine : Machine) (initial : Snap
 #print axioms popcount128SailCorrect
 
 end Correctness
-
-
-/-! ## ELF byte verification -/
-
-def verifyElf (path : String) : IO Unit :=
-  Riscfree.verifyElf path "popcount128" (instructions.map Prod.fst)
 
 end Popcount
 

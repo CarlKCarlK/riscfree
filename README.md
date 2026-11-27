@@ -51,7 +51,7 @@ for SWAR. Both theorems depend on exactly the same axioms, all of which come
 from the Sail model and Lean's standard axioms. Neither proof uses `sorry`,
 `native_decide`, or `bv_decide`.
 
-`just prove` enforces this with three checks:
+`just prove` enforces this with three checks, then the linked-byte check:
 
 - `scripts/check_proof_sources.py` scans `proof/` (outside comments and
   strings) for shortcuts such as `sorry`, `native_decide`, `bv_decide`, new
@@ -64,12 +64,22 @@ from the Sail model and Lean's standard axioms. Neither proof uses `sorry`,
   functions). Each stub must be declared in `LeanRV32D.RiscvExtras` and have a
   nonempty type, so assuming it cannot introduce a contradiction. Sail's Lean
   backend declares these externs as axioms, and they reach every theorem about
-  `step` because `execute` covers every instruction.
+  `step` because `execute` covers every instruction. It reads each audited
+  module's own constant table. `--reference` additionally runs the original,
+  much slower scan of the whole environment and fails unless both select the
+  same declarations and reach the same axioms.
 - `scripts/AxiomPaths.lean` (`just axiom-paths`) prints a shortest dependency
   chain to each axiom of `rawVecU32InsertSailCorrect`. It fails unless the
   instructions the routine executes reach only Lean's three axioms and four
   Sail stubs. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) explains
   why none of the four affects this routine.
+- `scripts/LinkedBytes.lean` compares each routine's linked bytes in every
+  firmware and QEMU ELF with the instruction table its proof decodes. It also
+  checks the shim offset and the QEMU harness's lack of compressed
+  instructions. It runs in one Lean process and imports the proof modules, but
+  no proof imports it, so editing it rebuilds no proof. The same run requires
+  it to reject six corrupted copies (one flipped bit in each routine and the
+  shim, and a set RVC flag) that `scripts/corrupt_elf.py` writes.
 
 Sail decodes each linked word through a pre-simplified decoder.
 `proof/Riscfree/RV32/DecoderNormalForm.lean` runs `simp` once over Sail's
@@ -131,7 +141,7 @@ The files are:
   definition once and adds the result and its equation theorem through the
   kernel. The `StateRun` lemmas push a known `EStateM` state through binds and
   branches.
-- `proof/Riscfree/Elf.lean`: the linked-byte check.
+- `proof/Riscfree/Elf.lean`: the ELF reading behind `scripts/LinkedBytes.lean`.
 
 On a clean build, `lake build` spends about 15 minutes, once, simplifying the
 decoder. After that, `Popcount` elaborates in about 60 seconds and
@@ -141,6 +151,23 @@ went through `simp`. `just kernel-check` optionally replays every module under
 replay function (`scripts/KernelCheck.lean`), 16 modules in parallel by default
 (`just kernel-check 8` for fewer). It is not part of `just prove` and takes
 about 3 minutes.
+
+With everything built, `just prove` takes about 80 seconds, mostly the axiom
+checks. Editing an application theorem such as `proof/RawVec/PairInsert.lean`
+rebuilds in about 13 seconds. Editing a table of step lemmas such as
+`proof/RawVec/PairInsert/Instructions.lean`, or a module it imports, costs
+about 80 seconds.
+
+The decoder normal form is rebuilt only when
+`proof/Riscfree/RV32/DecoderNormalForm.lean`, a module it imports
+(`Riscfree.NormalForm`, `Riscfree.StateRun`, and `Riscfree.RV32.Effects`), the Lean toolchain, or
+the pinned Lake packages change. Application proofs and the rest of
+`proof/Riscfree/RV32/` do not invalidate it. To seed a new worktree, copy an
+existing worktree's `.lake` directory with `cp -a` before the first
+`lake build`. Lake checks each module's source and imports and rebuilds only
+what differs, so a stale copy costs time but never yields an unchecked
+module. Do not share `.lake` between worktrees with a symbolic link or hard
+links, because a build in one would then overwrite the other's files.
 
 Each theorem's `entry` premise and `Platform` structure specify the starting
 state and execution conditions. The code mapping supplies the linked halfwords

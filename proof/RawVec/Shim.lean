@@ -18,8 +18,8 @@ ret
 ```
 
 The `auipc` and `jalr` immediates come from the linker, so the table records
-the words of the linked demo. `verifyElf` checks those bytes and that the
-routine lies exactly `routineOffset` bytes after the shim.
+the words of the linked demo. `scripts/LinkedBytes.lean` checks those bytes and
+that the routine lies exactly `routineOffset` bytes after the shim.
 
 The pinned Sail configuration does not support Zca (`hartSupports Ext_Zca`
 is `false`), so Sail faults on a jump to an address with bit 1 set. The Rust
@@ -625,17 +625,3 @@ theorem callRawVecU32InsertSailCorrect (shimBase : Word) (original : Machine) (c
   · simpa only [syncMem] using accepted
 
 end Riscfree.RawVec
-
-namespace Riscfree.RawVec.Shim
-
--- Check the shim's and the routine's linked bytes, and that the shim's call
--- reaches the routine.
-def verifyElf (path : String) : IO Unit := do
-  let routine ← Riscfree.verifyElfSymbol path "raw_vec_u32_insert" (instructions.map Prod.fst)
-  let shim ← Riscfree.verifyElfSymbol path "call_raw_vec_u32_insert" (shimInstructions.map Prod.fst)
-  unless routine == shim + routineOffset.toNat do
-    throw (IO.userError s!"raw_vec_u32_insert is {routine - shim} bytes after the shim, but the \
-      proof's call reaches {routineOffset.toNat}")
-  IO.println s!"call_raw_vec_u32_insert: calls raw_vec_u32_insert {routineOffset.toNat} bytes ahead"
-
-end Riscfree.RawVec.Shim

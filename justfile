@@ -1,4 +1,7 @@
 emulator_release := "emulator/target/riscv32im-unknown-none-elf/release"
+firmware_release := "target/riscv32imc-unknown-none-elf/release"
+# The popcount variants share one output path, so each build is copied here.
+linked := "target/linked"
 
 # Flash and monitor one popcount routine: `just run` (bit loop) or `just run swar`.
 run algorithm="loop":
@@ -39,20 +42,26 @@ prove:
     lake build
     lake env lean --run scripts/AxiomAudit.lean
     just axiom-paths
-    cargo build --locked --release
-    just verify-elf Popcount
-    cargo build --locked --release --features swar
-    just verify-elf PopcountSwar
-    just build-raw-vec
-    just verify-elf RawVec.Shim target/riscv32imc-unknown-none-elf/release/examples/raw_vec
-    just verify-elf RawVec.PairInsert target/riscv32imc-unknown-none-elf/release/examples/raw_vec
-    cd emulator && cargo build --locked --release
-    just verify-emulator-elf Popcount {{emulator_release}}/riscfree-emulator
-    cd emulator && cargo build --locked --release --features swar
-    just verify-emulator-elf PopcountSwar {{emulator_release}}/riscfree-emulator
-    just build-emulator-raw-vec
-    just verify-emulator-elf RawVec {{emulator_release}}/examples/raw_vec
-    just verify-emulator-elf RawVec.PairInsert {{emulator_release}}/examples/raw_vec
+    just build-linked
+    just corrupt-linked
+    { cat scripts/LinkedBytes.lean; printf '%s\n' '#eval linkedBytes [' \
+        '"popcount", "{{linked}}/firmware-popcount.elf",' \
+        '"popcount-swar", "{{linked}}/firmware-popcount-swar.elf",' \
+        '"raw-vec", "{{firmware_release}}/examples/raw_vec",' \
+        '"raw-vec-shim", "{{firmware_release}}/examples/raw_vec",' \
+        '"popcount", "{{linked}}/emulator-popcount.elf",' \
+        '"uncompressed", "{{linked}}/emulator-popcount.elf",' \
+        '"popcount-swar", "{{linked}}/emulator-popcount-swar.elf",' \
+        '"uncompressed", "{{linked}}/emulator-popcount-swar.elf",' \
+        '"raw-vec", "{{emulator_release}}/examples/raw_vec",' \
+        '"uncompressed", "{{emulator_release}}/examples/raw_vec",' \
+        '"reject-popcount", "{{linked}}/negative/popcount.elf",' \
+        '"reject-popcount-swar", "{{linked}}/negative/popcount-swar.elf",' \
+        '"reject-raw-vec", "{{linked}}/negative/raw-vec-u32.elf",' \
+        '"reject-raw-vec", "{{linked}}/negative/raw-vec-pair.elf",' \
+        '"reject-raw-vec-shim", "{{linked}}/negative/raw-vec-shim.elf",' \
+        '"reject-uncompressed", "{{linked}}/negative/emulator-rvc.elf"' \
+        ']'; } | lake env lean -DwarningAsError=true --stdin
 
 # Explain each axiom the RawVec and shim theorems reach, and fail unless the executed instructions reach only the expected ones.
 axiom-paths:
@@ -73,16 +82,28 @@ kernel-check jobs="16":
     find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g' | sort | \
         xargs -P {{ jobs }} -I {} sh -c '/usr/bin/time -f "replayed {} in %e s, peak %M KB" lake env lean --run scripts/KernelCheck.lean {} > /dev/null'
 
+# Build every firmware and QEMU ELF file that `prove` checks.
 [private]
-verify-elf module elf="target/riscv32imc-unknown-none-elf/release/riscfree":
-    printf '%s\n' 'import {{module}}' \
-        '#eval Riscfree.{{module}}.verifyElf "{{elf}}"' \
-        | lake env lean -DwarningAsError=true --stdin
+build-linked:
+    mkdir -p {{linked}}
+    cargo build --locked --release
+    cp {{firmware_release}}/riscfree {{linked}}/firmware-popcount.elf
+    cargo build --locked --release --features swar
+    cp {{firmware_release}}/riscfree {{linked}}/firmware-popcount-swar.elf
+    just build-raw-vec
+    cd emulator && cargo build --locked --release
+    cp {{emulator_release}}/riscfree-emulator {{linked}}/emulator-popcount.elf
+    cd emulator && cargo build --locked --release --features swar
+    cp {{emulator_release}}/riscfree-emulator {{linked}}/emulator-popcount-swar.elf
+    just build-emulator-raw-vec
 
-# Like verify-elf, and also require that the QEMU harness has no compressed instructions.
+# Write corrupted copies of the linked ELF files, which `prove` requires the checker to reject.
 [private]
-verify-emulator-elf module elf:
-    printf '%s\n' 'import {{module}}' \
-        '#eval Riscfree.{{module}}.verifyElf "{{elf}}"' \
-        '#eval Riscfree.verifyUncompressed "{{elf}}"' \
-        | lake env lean -DwarningAsError=true --stdin
+corrupt-linked:
+    mkdir -p {{linked}}/negative
+    python3 scripts/corrupt_elf.py flip {{linked}}/firmware-popcount.elf popcount128 {{linked}}/negative/popcount.elf
+    python3 scripts/corrupt_elf.py flip {{linked}}/emulator-popcount-swar.elf popcount128_swar {{linked}}/negative/popcount-swar.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec raw_vec_u32_insert {{linked}}/negative/raw-vec-u32.elf
+    python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec raw_vec_pair_insert {{linked}}/negative/raw-vec-pair.elf
+    python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec call_raw_vec_u32_insert {{linked}}/negative/raw-vec-shim.elf
+    python3 scripts/corrupt_elf.py rvc {{emulator_release}}/examples/raw_vec {{linked}}/negative/emulator-rvc.elf

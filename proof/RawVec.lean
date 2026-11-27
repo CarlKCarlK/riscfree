@@ -1,4 +1,3 @@
-import Riscfree.Elf
 import RawVec.Instructions
 import RawVec.Insert
 
@@ -459,8 +458,5 @@ theorem rawVecU32InsertSailCorrectInMachineMode (base returnAddress : Word) (ori
 #print axioms rawVecU32InsertSailCorrect
 
 end Run
-
-def verifyElf (path : String) : IO Unit :=
-  Riscfree.verifyElf path "raw_vec_u32_insert" (instructions.map Prod.fst)
 
 end Riscfree.RawVec

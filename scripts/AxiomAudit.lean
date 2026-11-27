@@ -7,6 +7,7 @@ Run after `lake build`:
 
 ```bash
 lake env lean --run scripts/AxiomAudit.lean
+lake env lean --run scripts/AxiomAudit.lean --reference  # also cross-check the selection
 ```
 
 The audit imports every module under `proof/` from its built `.olean`, so a
@@ -69,32 +70,77 @@ def shortcutAxioms : List (Name × String) :=
    (``Lean.ofReduceNat, "native evaluation of a natural-number term"),
    (``Lean.trustCompiler, "trust in the compiled code of `native_decide` or `bv_decide`")]
 
-def main : IO UInt32 := do
-  let modules ← proofModules
-  if modules.isEmpty then
-    IO.eprintln s!"axiom audit: no Lean files under {proofDir}"
-    return 2
-  initSearchPath (← findSysroot)
-  let env ← importModules (modules.map ({ module := · })) {} (loadExts := true)
-  let moduleSet := modules.foldl NameSet.insert {}
-  let audited := env.constants.toList.filterMap fun (name, _) => do
+/-- The declarations of the audited modules, read from each module's own
+constant table.
+
+This selects the same set as `referenceDeclarations`. When `importModules`
+loads module `i`, it records each name of `moduleData[i].constNames` as
+belonging to module `i`, which is what `getModuleIdxFor?` returns, and it
+rejects a name that two modules declare. So the constants that belong to an
+audited module are exactly the names in the audited modules' `constNames`.
+The module-index filter below keeps that true even if a future Lean records
+a name in a table without owning it. `--reference` checks the equality. -/
+def auditedDeclarations (env : Environment) (moduleSet : NameSet) : List Name :=
+  (env.header.moduleNames.zip env.header.moduleData).toList.flatMap fun (module, data) =>
+    if moduleSet.contains module then
+      data.constNames.toList.filter fun name =>
+        (env.getModuleIdxFor? name).any (env.header.moduleNames[·.toNat]! == module)
+    else []
+
+-- TODO Remove `referenceDeclarations` and `--reference` once the module-by-module
+-- selection has agreed with it through a few more proof additions.
+/-- The original selection: scan every constant in the environment, including
+all of Mathlib and Sail, and keep those whose module is audited. It takes
+about 150 s, against well under a second for `auditedDeclarations`. -/
+def referenceDeclarations (env : Environment) (moduleSet : NameSet) : List Name :=
+  env.constants.toList.filterMap fun (name, _) => do
     let index ← env.getModuleIdxFor? name
     guard (moduleSet.contains env.header.moduleNames[index.toNat]!)
     pure name
-  -- One pass with a shared `visited` set gives every axiom the audited code uses,
-  -- and records the first audited declaration that reaches each one. Thread the
-  -- state through a `for` loop: under `lean --run`, `forM` in `CollectAxioms.M`
-  -- took minutes instead of seconds.
+
+def sorted (names : List Name) : List Name :=
+  (names.toArray.qsort Name.lt).toList
+
+/-- One pass with a shared `visited` set gives every axiom the declarations use,
+and records the first declaration that reaches each one. Thread the state
+through a `for` loop: under `lean --run`, `forM` in `CollectAxioms.M` took
+minutes instead of seconds. -/
+def collectAll (env : Environment) (declarations : List Name) :
+    CollectAxioms.State × NameMap Name := Id.run do
   let mut state : CollectAxioms.State := {}
   let mut firstUser : NameMap Name := {}
-  for user in audited do
+  for user in declarations do
     let known := state.axioms.size
     state := (((CollectAxioms.collect user).run env).run state).2
     for name in state.axioms.extract known do
       firstUser := firstUser.insert name user
+  (state, firstUser)
+
+/-- An accepted Sail stub must come from `sailExternModule` and have a nonempty type. -/
+def checkSailExtern (env : Environment) (name : Name) : MetaM (Array String) := do
+  let some (.axiomInfo info) := env.find? name
+    | return #[s!"{name} is listed as a Sail extern stub but is not an axiom"]
+  let module := (env.getModuleIdxFor? name).map (env.header.moduleNames[·.toNat]!)
+  unless module == some sailExternModule do
+    return #[s!"{name} comes from {module}, not {sailExternModule}"]
+  let isNonempty ← forallTelescope info.type fun _ body => do
+    let level ← getLevel body
+    return (← synthInstance? (mkApp (mkConst ``Nonempty [level]) body)).isSome
+  if isNonempty then
+    return #[]
+  return #[s!"{name} : {info.type} has no Nonempty instance, so it may not be conservative"]
+
+/-- Check the axioms of the audited declarations. With `referenceAxioms`, also
+require that the reference selection reached exactly the same axioms. -/
+def audit (env : Environment) (modules : Array Name) (audited : List Name)
+    (referenceAxioms : Option (Array Name)) : IO UInt32 := do
+  let (state, firstUser) := collectAll env audited
+  let mut failures : Array String := #[]
+  if let some referenceAxioms := referenceAxioms then
+    unless sorted state.axioms.toList == sorted referenceAxioms.toList do
+      failures := failures.push "the two selections reach different axioms"
   let allowed := standardAxioms ++ sailExterns
   let unexpected := state.axioms.filter (!allowed.contains ·)
-  let mut failures : Array String := #[]
   for name in unexpected do
     -- A shortcut usually appears directly in the proof that took it.
     let direct := audited.filter fun user =>
@@ -121,6 +167,32 @@ def main : IO UInt32 := do
   for failure in failures do
     IO.eprintln s!"axiom audit: {failure}"
   return 1
+
+def main (args : List String) : IO UInt32 := do
+  let reference ← match args with
+    | [] => pure false
+    | ["--reference"] => pure true
+    | _ => do
+      IO.eprintln "usage: AxiomAudit.lean [--reference]"
+      return 2
+  let modules ← proofModules
+  if modules.isEmpty then
+    IO.eprintln s!"axiom audit: no Lean files under {proofDir}"
+    return 2
+  initSearchPath (← findSysroot)
+  let env ← importModules (modules.map ({ module := · })) {} (loadExts := true)
+  let moduleSet := modules.foldl NameSet.insert {}
+  let audited := auditedDeclarations env moduleSet
+  if reference then
+    let expected := referenceDeclarations env moduleSet
+    unless sorted audited == sorted expected do
+      IO.eprintln s!"axiom audit: the module-by-module selection chose {audited.length} \
+        declarations, but the whole-environment scan chose {expected.length}"
+      return 1
+    let referenceAxioms := (collectAll env expected).1.axioms
+    IO.println s!"axiom audit: reference scan agrees on all {audited.length} declarations"
+    return (← audit env modules audited (some referenceAxioms))
+  audit env modules audited none
 where
   /-- Module names for every `.lean` file under `proofDir`, sorted. -/
   proofModules : IO (Array Name) := do
@@ -130,16 +202,3 @@ where
       let relative ← (file.withExtension "").toString.dropPrefix? (proofDir.toString ++ "/")
       pure (relative.toString.splitOn "/" |>.foldl Name.str .anonymous)
     pure (modules.qsort Name.lt)
-  /-- An accepted Sail stub must come from `sailExternModule` and have a nonempty type. -/
-  checkSailExtern (env : Environment) (name : Name) : MetaM (Array String) := do
-    let some (.axiomInfo info) := env.find? name
-      | return #[s!"{name} is listed as a Sail extern stub but is not an axiom"]
-    let module := (env.getModuleIdxFor? name).map (env.header.moduleNames[·.toNat]!)
-    unless module == some sailExternModule do
-      return #[s!"{name} comes from {module}, not {sailExternModule}"]
-    let isNonempty ← forallTelescope info.type fun _ body => do
-      let level ← getLevel body
-      return (← synthInstance? (mkApp (mkConst ``Nonempty [level]) body)).isSome
-    if isNonempty then
-      return #[]
-    return #[s!"{name} : {info.type} has no Nonempty instance, so it may not be conservative"]
