@@ -10,6 +10,13 @@ name = "pico-fv"
 git = "https://github.com/NethermindEth/pico-fv"
 rev = "a7f9a0976e245aeef89c3f02c51ae85023207b53"
 
+# The RangeSetBlaze mathematical proofs, required after pico-fv so that
+# pico-fv's Mathlib and Sail versions are the ones resolved.
+[[require]]
+name = "range-set-blaze-vibe-validation"
+git = "https://github.com/CarlKCarlK/range-set-blaze-vibe-validation"
+rev = "d7837025ca5ed1ec74f35768ea12d97014dad249"
+
 [[lean_lib]]
 name = "Riscfree"
 srcDir = "proof"

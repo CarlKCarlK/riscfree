@@ -8,11 +8,14 @@ Run after `lake build`:
 ```bash
 lake env lean --run scripts/AxiomAudit.lean
 lake env lean --run scripts/AxiomAudit.lean --reference  # also cross-check the selection
+lake env lean --run scripts/AxiomAudit.lean RangeSetBlaze.Basic  # also audit dependency modules
 ```
 
 The audit imports every module under `proof/` from its built `.olean`, so a
 proof file missing from the `lakefile.toml` globs fails here instead of going
-unchecked. It collects the axioms that the kernel recorded for every
+unchecked. Further module names on the command line, such as the mathematical
+dependency's modules that `scripts/check_proof_sources.py --dependency-modules`
+lists, are audited the same way. It collects the axioms that the kernel recorded for every
 declaration in those modules and fails unless each one is
 
 * one of Lean's three standard axioms, or
@@ -169,13 +172,12 @@ def audit (env : Environment) (modules : Array Name) (audited : List Name)
   return 1
 
 def main (args : List String) : IO UInt32 := do
-  let reference ← match args with
-    | [] => pure false
-    | ["--reference"] => pure true
-    | _ => do
-      IO.eprintln "usage: AxiomAudit.lean [--reference]"
-      return 2
-  let modules ← proofModules
+  let reference := args.contains "--reference"
+  let extra := (args.filter (· != "--reference")).map String.toName
+  if extra.any (·.isAnonymous) then
+    IO.eprintln "usage: AxiomAudit.lean [--reference] [module ...]"
+    return 2
+  let modules := ((← proofModules) ++ extra.toArray).qsort Name.lt
   if modules.isEmpty then
     IO.eprintln s!"axiom audit: no Lean files under {proofDir}"
     return 2

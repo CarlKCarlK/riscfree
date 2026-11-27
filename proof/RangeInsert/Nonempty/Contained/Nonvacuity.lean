@@ -19,7 +19,7 @@ open LeanRV32D RV32IM
 open Riscfree.RV32 Riscfree.RawVec
 open InsertTable (instructions)
 open Empty (Snapshot)
-open Mathematics Mathematics.RangeSetBlaze
+open RangeSetBlazeValidation RangeSetBlazeValidation.RangeSetBlaze
 
 def base : Word := 0x1208
 def sp : Word := 0x2800
@@ -195,7 +195,7 @@ theorem allCasesRun :
 
 /-! ## The same maps represent canonical sets -/
 
-private def nr (lo hi : Int) (ordered : lo ≤ hi) : Mathematics.IntRange.NR :=
+private def nr (lo hi : Int) (ordered : lo ≤ hi) : RangeSetBlazeValidation.IntRange.NR :=
   ⟨{ lo := lo, hi := hi }, ordered⟩
 
 def threeRanges : RangeSetBlaze :=

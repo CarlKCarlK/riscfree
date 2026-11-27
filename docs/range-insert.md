@@ -25,9 +25,18 @@ after the deletion pass. The extension path adds the predecessor's
 extension length before that pass. The explicit loop implements the
 production `map_while(...).collect()` stopping and append order.
 
-`proof/RangeInsert/AlgoC.lean` reuses the `Basic` and `AlgoC` proofs
-from range-set-blaze-vibe-validation revision `63ff30b5`. The imported proof
-uses a growing adjacency limit. The fixed-end correspondence proves that
+The mathematical proofs come from range-set-blaze-vibe-validation, a
+pinned Lake dependency (branch `riscfree-dependency`, commit `d7837025`),
+so riscfree keeps no copy of them. That branch puts the library in the
+`RangeSetBlazeValidation` namespace, because Sail also declares a
+top-level `IntRange`. Its sources build with both its own Lean 4.33.1 and
+riscfree's Lean 4.28.0-rc1, without separate copies. riscfree requires it
+after Pico FV, so Pico FV's Mathlib and Sail revisions are the ones
+resolved. The source check, axiom audit, and kernel replay include the
+dependency modules that riscfree imports (`RangeSetBlaze.Basic` and
+`RangeSetBlaze.AlgoC`). The production fixed-end model also lives
+there, in `AlgoC.lean`. Algo C's `internalAddCLen` uses a growing
+adjacency limit. The fixed-end correspondence proves that
 after a successor grows the end, canonical spacing puts the rest of the
 suffix beyond the growing end as well. Therefore the two scans test and
 accept the same successors and thread the same cached lengths.
@@ -37,7 +46,7 @@ construction. `Arithmetic.lean` proves the unsigned endpoint comparisons
 and widened inclusive width, including an inclusive length of `2^32`.
 It also establishes the exact two-word addition and subtraction identities
 used in the RV32I bookkeeping.
-[Imported mathematical proof](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/blob/63ff30b524f250e8dbab5812099a5159d4e0d7d0/RangeSetBlaze/AlgoC.lean)
+[Mathematical proof](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/blob/d7837025ca5ed1ec74f35768ea12d97014dad249/RangeSetBlaze/AlgoC.lean)
 
 ## Storage and machine costs
 
@@ -127,10 +136,11 @@ three, and `Represents` and `containedModel` hold for the same maps.
 
 ## Proof size and measurements
 
-The abstract proof reuses about 2,090 lines of upstream Lean, with one
-reflexivity instance added for the pinned toolchain. The new mathematical
-work covers the fixed-end correspondence, the finite-domain cardinality
-bound, intermediate arithmetic, and concrete cases. The two linked
+The abstract proof uses about 2,090 lines of Lean from the mathematical
+dependency. The production-model work added there covers the fixed-end
+correspondence, the covered branch, the finite-domain cardinality bound,
+and concrete cases. riscfree keeps the machine arithmetic and the
+machine-to-model correspondence. The two linked
 tables have about 300 lines. The linked proof
 reuses the existing decoder normal form, register snapshots, memory and
 stack lemmas, and the RawVec model machine. The decoder cache was copied

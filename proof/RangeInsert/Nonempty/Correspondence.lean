@@ -1,4 +1,4 @@
-import RangeInsert.AlgoC
+import RangeSetBlaze.AlgoC
 import RangeInsert.Nonempty.Predecessor
 
 /-! The bounded map's live entries represent a canonical `RangeSetBlaze`
@@ -10,7 +10,7 @@ so the machine's covered-path test agrees with the model's branch. -/
 namespace Riscfree.RangeInsert.Nonempty
 
 open Riscfree.RawVec Riscfree.SortedMap
-open Mathematics Mathematics.RangeSetBlaze Mathematics.IntRange Mathematics.IntRange.NR
+open RangeSetBlazeValidation RangeSetBlazeValidation.RangeSetBlaze RangeSetBlazeValidation.IntRange RangeSetBlazeValidation.IntRange.NR
 
 def NR.endpoints (nr : NR) : Int × Int := (nr.val.lo, nr.val.hi)
 
@@ -21,7 +21,7 @@ def Represents (s : RangeSetBlaze) (call : Call) : Prop :=
   s.ranges.map NR.endpoints = (entriesOf call.old call.length.toNat).map Pair.endpoints
 
 /-- The input `start..=stop` as an integer range. -/
-def Call.input (call : Call) : Mathematics.IntRange := ⟨call.start.toNat, call.stop.toNat⟩
+def Call.input (call : Call) : RangeSetBlazeValidation.IntRange := ⟨call.start.toNat, call.stop.toNat⟩
 
 -- Canonical ranges start in strictly increasing order, so the entries are
 -- sorted by key.

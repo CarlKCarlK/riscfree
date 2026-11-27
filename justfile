@@ -47,7 +47,7 @@ emulate-raw-vec: build-emulator-raw-vec
 prove:
     python3 scripts/check_proof_sources.py
     lake build
-    lake env lean --run scripts/AxiomAudit.lean
+    lake env lean --run scripts/AxiomAudit.lean $(python3 scripts/check_proof_sources.py --dependency-modules)
     just axiom-paths
     just build-linked
     just corrupt-linked
@@ -115,7 +115,8 @@ empty-range-axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
 # all jobs share. With 16 jobs, physical memory in use peaked at 21 GB (5 GB idle).
 kernel-check jobs="16":
     lake build
-    find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g' | sort | \
+    { find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g'; \
+        python3 scripts/check_proof_sources.py --dependency-modules; } | sort | \
         xargs -P {{ jobs }} -I {} sh -c '/usr/bin/time -f "replayed {} in %e s, peak %M KB" lake env lean --run scripts/KernelCheck.lean {} > /dev/null'
 
 # Build every firmware and QEMU ELF file that `prove` checks.

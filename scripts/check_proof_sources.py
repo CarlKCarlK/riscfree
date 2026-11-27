@@ -1,9 +1,14 @@
 """Reject proof shortcuts in the Lean sources before they are built.
 
-Usage: python3 scripts/check_proof_sources.py
+Usage: python3 scripts/check_proof_sources.py [--dependency-modules]
 
-Scans every `.lean` file under `proof/`, plus `lakefile.toml`, with comments and
-string literals removed, so prose may still mention a forbidden name. The axiom
+`--dependency-modules` prints those dependency modules instead, one per line,
+for the kernel replay.
+
+Scans every `.lean` file under `proof/`, every module of the
+range-set-blaze-vibe-validation dependency that those files import directly or
+transitively, and `lakefile.toml`, with comments and string literals removed,
+so prose may still mention a forbidden name. The axiom
 audit (`scripts/AxiomAudit.lean`) reads what the kernel recorded; this scan
 also catches shortcuts that leave no axiom, such as `#exit` or code that runs
 while a file is elaborated.
@@ -15,6 +20,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PROOF_DIRECTORY = "proof"
+# The mathematical proofs riscfree's correspondence theorems build on.
+DEPENDENCY_DIRECTORY = ROOT / ".lake" / "packages" / "range-set-blaze-vibe-validation"
+DEPENDENCY_PREFIX = "RangeSetBlaze"
 
 FORBIDDEN = [
     (r"\bsorry\b", "`sorry` leaves a goal unproved"),
@@ -89,8 +97,34 @@ def strip_comments_and_strings(text: str) -> str:
     return "".join(output)
 
 
+def imported_dependency_modules(files: list[Path]) -> list[str]:
+    """The dependency modules the given files import, followed transitively."""
+    pattern = re.compile(rf"^import\s+({DEPENDENCY_PREFIX}(?:\.[\w.]+)?)\s*$", re.MULTILINE)
+    pending = [name for path in files for name in pattern.findall(path.read_text(encoding="utf-8"))]
+    found: set[str] = set()
+    while pending:
+        module = pending.pop()
+        if module in found:
+            continue
+        found.add(module)
+        path = DEPENDENCY_DIRECTORY / (module.replace(".", "/") + ".lean")
+        if not path.is_file():
+            raise SystemExit(f"proof source check: {module} is imported but {path} is missing; run `lake build`")
+        pending.extend(pattern.findall(path.read_text(encoding="utf-8")))
+    return sorted(found)
+
+
 def main() -> int:
-    files = sorted((ROOT / PROOF_DIRECTORY).rglob("*.lean"))
+    own_files = sorted((ROOT / PROOF_DIRECTORY).rglob("*.lean"))
+    modules = imported_dependency_modules(own_files)
+    if sys.argv[1:] == ["--dependency-modules"]:
+        print("\n".join(modules))
+        return 0
+    if sys.argv[1:]:
+        print(__doc__, file=sys.stderr)
+        return 2
+    dependency_files = [DEPENDENCY_DIRECTORY / (module.replace(".", "/") + ".lean") for module in modules]
+    files = own_files + dependency_files
     lakefile = ROOT / "lakefile.toml"
     failures = []
     for path in [*files, lakefile]:
@@ -106,7 +140,8 @@ def main() -> int:
         print("\n".join(failures), file=sys.stderr)
         print(f"proof source check: {len(failures)} forbidden shortcut(s)", file=sys.stderr)
         return 1
-    print(f"proof source check: OK: {len(files)} Lean files have no forbidden shortcuts.")
+    print(f"proof source check: OK: {len(files)} Lean files ({len(dependency_files)} from the "
+          "mathematical dependency) have no forbidden shortcuts.")
     return 0
 
 

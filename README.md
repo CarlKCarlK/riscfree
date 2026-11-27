@@ -356,6 +356,9 @@ The ordered-map backend follows the operations used by
 [RangeSetBlaze](https://github.com/CarlKCarlK/range-set-blaze) and draws on the
 independent ordered-map experiments and cardinality proofs in
 [range-set-blaze-vibe-validation](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation).
+riscfree requires that repository as a pinned Lake dependency for the
+mathematical RangeSetBlaze insertion proofs that its range insertion
+theorems connect to.
 See [sorted-map verification](docs/sorted-map.md) and the
 [range insertion experiment](docs/range-insert.md).
 
