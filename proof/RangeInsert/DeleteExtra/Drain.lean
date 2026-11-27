@@ -120,8 +120,6 @@ structure DrainLayout (base : Word) (original : Machine) (call : Call) (capacity
   keysFit : scratch.slot collected ≤ 2 ^ 32
   keyCountFits : 4 * collected < 2 ^ 32
   collectedReadable : ∀ j < collected, Readable original (scratch.wordSlot j)
-  collectedWord : ∀ j < collected,
-    WordAt start (scratch.slot j) (before (call.position + 1 + j)).key
   collectedApart : ∀ j < collected, ∀ byte, scratch.slot j ≤ byte → byte < scratch.slot j + 4 →
     ¬ DrainFootprint sp call.header call.search call.position call.length.toNat byte
 
@@ -189,6 +187,8 @@ theorem drain {base returnAddress : Word} {original : Machine} {initial : Snapsh
     (frame : Frame base returnAddress original initial)
     (layout : DrainLayout base original call capacity before scratch collected
       (frameBase initial.sp) start)
+    (collectedWord : ∀ j < collected,
+      WordAt start (scratch.slot j) (before (call.position + 1 + j)).key)
     (head : Snapshot)
     (registers : DrainRegisters call scratch collected (frameBase initial.sp) 0 head)
     (memory : DrainMemory call before (frameBase initial.sp) start 0 start) :
@@ -347,7 +347,7 @@ theorem drain {base returnAddress : Word} {original : Machine} {initial : Snapsh
       unfold Scratch.slot at fits ⊢; omega
     have keyWord : WordAt mem state.s1.toNat (before (call.position + 1 + j)).key := by
       rw [regs.cursor, scratch.wordSlotNat keySlotFits]
-      exact (layout.collectedWord j (by omega)).congr fun byte low high =>
+      exact (collectedWord j (by omega)).congr fun byte low high =>
         (invariant.others byte (layout.collectedApart j (by omega) byte low high)).symm ▸ rfl
     have atLoop : state.pc = 0x164#32 := by
       rw [regs.pc, if_neg (by omega)]
@@ -387,6 +387,29 @@ theorem drain {base returnAddress : Word} {original : Machine} {initial : Snapsh
       obtain ⟨frameOutside, lengthOutside, slotsOutside⟩ := removalFootprint byte outside
       rw [keptAfter byte frameOutside lengthOutside slotsOutside]
       exact invariant.others byte outside
+
+/-- A layout stated for one memory holds for another that agrees on the code,
+the header's data and capacity words. -/
+theorem DrainLayout.transfer {base : Word} {original : Machine} {call : Call} {capacity : Word}
+    {before : Nat → Pair} {scratch : Scratch} {collected : Nat} {sp : Word}
+    {start other : ByteMemory}
+    (layout : DrainLayout base original call capacity before scratch collected sp start)
+    (code : ∀ byte, ((base.toNat ≤ byte ∧ byte < base.toNat + 4 * DeleteTable.instructions.length) ∨
+      ((removeBase base).toNat ≤ byte ∧ byte < (removeBase base).toNat + 144) ∨
+      ((SortedMap.Remove.searchBase (removeBase base)).toNat ≤ byte ∧
+        byte < (SortedMap.Remove.searchBase (removeBase base)).toNat + 52) ∨
+      ((SortedMap.Remove.vectorBase (removeBase base)).toNat ≤ byte ∧
+        byte < (SortedMap.Remove.vectorBase (removeBase base)).toNat + 100)) →
+      other[byte]? = start[byte]?)
+    (header : ∀ byte, call.header.toNat ≤ byte → byte < call.header.toNat + 12 →
+      (byte < call.header.toNat + 4 ∨ call.header.toNat + 8 ≤ byte) → other[byte]? = start[byte]?) :
+    DrainLayout base original call capacity before scratch collected sp other :=
+  { layout with
+    codeKept := fun byte inside =>
+      ⟨(code byte inside).trans (layout.codeKept byte inside).1, (layout.codeKept byte inside).2⟩
+    dataWord := layout.dataWord.congr fun byte low high => header byte low (by omega) (by omega)
+    capacityWord := layout.capacityWord.congr fun byte low high =>
+      header byte (by omega) (by omega) (by omega) }
 
 -- `slli s2, s2, 2` on the key count.
 theorem countShift {count : Nat} (fits : 4 * count < 2 ^ 32) :

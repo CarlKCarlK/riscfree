@@ -156,6 +156,26 @@ structure Layout (base : Word) (original : Machine) (call : Call) (scratch : Scr
   cacheApartSlots : call.cache.toNat + 8 ≤ scratch.slot 0 ∨ scratch.slot accepted ≤ call.cache.toNat
   capacity : accepted ≤ scratch.capacity.toNat
 
+/-- A scan layout stated for one memory holds for another that agrees on both
+code images and the candidate entries. -/
+theorem Layout.transfer {base : Word} {original : Machine} {call : Call} {scratch : Scratch}
+    {accepted : Nat} {start other : ByteMemory}
+    (layout : Layout base original call scratch accepted start)
+    (helper : ∀ byte, base.toNat ≤ byte → byte < base.toNat + 4 * DeleteTable.instructions.length →
+      other[byte]? = start[byte]?)
+    (raw : ∀ byte, (rawVecBase base).toNat ≤ byte →
+      byte < (rawVecBase base).toNat + 4 * RawVec.instructions.length → other[byte]? = start[byte]?)
+    (entries : ∀ index < call.length.toNat, ∀ byte, call.search.slot index ≤ byte →
+      byte < call.search.slot index + 8 → other[byte]? = start[byte]?) :
+    Layout base original call scratch accepted other :=
+  { layout with
+    helperStart := fun byte low high => (helper byte low high).trans (layout.helperStart byte low high)
+    rawStart := fun byte low high => (raw byte low high).trans (layout.rawStart byte low high)
+    keyWord := fun index bound => (layout.keyWord index bound).congr fun byte low high =>
+      entries index bound byte low (by omega)
+    valueWord := fun index bound => (layout.valueWord index bound).congr fun byte low high =>
+      entries index bound byte (by omega) (by omega) }
+
 theorem scan {base returnAddress : Word} {original : Machine} {initial : Snapshot} {call : Call}
     {scratch : Scratch} {accepted : Nat} {start : ByteMemory}
     (frame : Frame base returnAddress original initial)

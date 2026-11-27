@@ -197,14 +197,13 @@ def restore (initial state : Snapshot) (pc : Word) : Snapshot :=
 that keeps the saved slots and the code, raises `sp` by 48, and returns. -/
 theorem Frame.epilogue {base returnAddress : Word} {original : Machine} {initial : Snapshot}
     (frame : Frame base returnAddress original initial) (memory : ByteMemory)
-    (agrees : ∀ byte, OutsideFrame initial.sp byte → memory[byte]? = original.mem[byte]?)
+    (image : CodeImage instructions base { original with mem := memory })
     (saved : Saved memory initial) (state : Snapshot) (atExit : state.pc = 0x184#32)
     (lowered : state.sp = frameBase initial.sp) :
     run 14 (sync base { original with mem := memory } state) =
       some (sync base { original with mem := memory }
         (restore initial state (returnAddress - base))) := by
   let machine := frame.mode.toMachineState
-  have image := frame.imageAt memory agrees
   have bottomReadable : Readable original (frameBase initial.sp) := by
     have slot := frame.readable 0 (by decide)
     rwa [addLiteralZero] at slot
