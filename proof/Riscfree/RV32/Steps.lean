@@ -5,6 +5,7 @@ import PicoFV.RV32IM.RVSail.Opcodes.add
 import PicoFV.RV32IM.RVSail.Opcodes.and
 import PicoFV.RV32IM.RVSail.Opcodes.andi
 import PicoFV.RV32IM.RVSail.Opcodes.auipc
+import PicoFV.RV32IM.RVSail.Opcodes.jal
 import PicoFV.RV32IM.RVSail.Opcodes.jalr
 import PicoFV.RV32IM.RVSail.Opcodes.lui
 import PicoFV.RV32IM.RVSail.Opcodes.mul
@@ -342,6 +343,46 @@ theorem bne {left right : regidx} {offset : BitVec 13} {leftValue rightValue : B
   refine jump fetched decoded ?_ jumps
   rw [effect]
   split <;> simp only [BitVec.add_assoc]
+
+-- A taken branch must land on a four-byte boundary.
+theorem beq {left right : regidx} {offset : BitVec 13} {leftValue rightValue : BitVec 32}
+    {misa : RegisterType Register.misa}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) =
+      .ok (.BTYPE (offset, right, left, .BEQ)) (sync base frame state))
+    (leftRead : read_xreg (regidx_to_fin left) (sync base frame state) =
+      .ok leftValue (sync base frame state))
+    (rightRead : read_xreg (regidx_to_fin right) (sync base frame state) =
+      .ok rightValue (sync base frame state))
+    (misaRead : Sail.readReg Register.misa (sync base frame state) = .ok misa (sync base frame state))
+    (aligned : leftValue = rightValue →
+      (base + RegisterView.pc state + offset.signExtend 32) % 4 = 0)
+    (jumps : Jumps state next (if leftValue = rightValue then
+      RegisterView.pc state + offset.signExtend 32 else RegisterView.pc state + 4#32)) :
+    step (sync base frame state) = some (sync base frame next) := by
+  have effect := beqEffect _ left right offset _ leftValue rightValue (syncReadPC state)
+    leftRead rightRead misaRead aligned
+  refine jump fetched decoded ?_ jumps
+  rw [effect]
+  split <;> simp only [BitVec.add_assoc]
+
+-- An unconditional jump that discards the link value (`j`, which is `jal x0`).
+theorem jal {imm : BitVec 21} {misa : RegisterType Register.misa}
+    (fetched : fetch () (sync base frame state) = .ok (.F_Base word) (sync base frame state))
+    (decoded : ext_decode word (sync base frame state) =
+      .ok (.JAL (imm, .Regidx 0)) (sync base frame state))
+    (misaRead : Sail.readReg Register.misa (sync base frame state) = .ok misa (sync base frame state))
+    (aligned : (base + RegisterView.pc state + imm.signExtend 32) % 4 = 0)
+    (jumps : Jumps state next (RegisterView.pc state + imm.signExtend 32)) :
+    step (sync base frame state) = some (sync base frame next) := by
+  have effect := OpcodeSpec.RV32.execute_JAL_equiv
+    ((OpcodeSpec.RV32.spec_JAL_hypotheses (rd := .Regidx 0) (imm := imm)
+      (state := sync base frame state) (pc_val := base + RegisterView.pc state)).mpr
+        (syncReadPC state)) misaRead aligned
+  refine jump fetched decoded ?_ jumps
+  rw [effect]
+  simp [OpcodeSpec.RV32.spec_JAL, operation_list_effect, operation_effect,
+    writeReg_state_success, write_xreg, regidx_to_fin, BitVec.add_assoc]
 
 -- Return through `source`, discarding the link value (`rd` is x0).
 theorem jalr {source : regidx} {imm : BitVec 12} {sourceValue target : BitVec 32}

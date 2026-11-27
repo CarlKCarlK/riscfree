@@ -1,4 +1,4 @@
-//! Exercise the linked RawVec insertion and removal routines on the ESP32-C3.
+//! Exercise the linked RawVec and sorted-map routines on the ESP32-C3.
 
 #![no_std]
 #![no_main]
@@ -11,6 +11,8 @@ mod header;
 use header::{FULL, INDEX_OUT_OF_BOUNDS, INVALID_LENGTH, OK, Pair, RawVec};
 #[path = "../src/cases/raw_vec_remove.rs"]
 mod raw_vec_remove_case;
+#[path = "../src/cases/sorted_map.rs"]
+mod sorted_map_case;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 global_asm!(include_str!("../src/watchdog.S"));
@@ -23,6 +25,11 @@ unsafe extern "C" {
     // Removal shims, in `raw_vec_remove_call.S`.
     fn call_raw_vec_u32_remove(vec: *mut RawVec<u32>, index: u32) -> u32;
     fn call_raw_vec_pair_remove(vec: *mut RawVec<Pair>, index: u32) -> u32;
+    // Sorted-map shims, in `sorted_map_call.S`.
+    fn call_sorted_map_lower_bound(map: *const RawVec<Pair>, key: u32) -> u32;
+    fn call_sorted_map_upper_bound(map: *const RawVec<Pair>, key: u32) -> u32;
+    fn call_sorted_map_insert(map: *mut RawVec<Pair>, entry: Pair) -> u32;
+    fn call_sorted_map_remove(map: *mut RawVec<Pair>, key: u32) -> u32;
     fn stop_boot_watchdogs();
 }
 
@@ -63,6 +70,18 @@ fn main() -> ! {
     println!("RawVec<u32> PASS: [10, 20, 30, 40]; statuses {statuses:?}; invalid length rejected");
     check_pairs();
     check_removal();
+    // SAFETY: Each shim forwards to its routine, which has the contract the
+    // case requires.
+    unsafe {
+        sorted_map_case::search(
+            call_sorted_map_lower_bound,
+            call_sorted_map_upper_bound,
+            |line| println!("{line}"),
+        );
+        sorted_map_case::update(call_sorted_map_insert, call_sorted_map_remove, |line| {
+            println!("{line}")
+        });
+    }
     idle()
 }
 

@@ -13,7 +13,9 @@ fn main() {
     let shims = "examples/raw_vec_call.S";
     let remove_routines = "research/vec-ffi/linked/raw_vec_remove.rs";
     let remove_shims = "examples/raw_vec_remove_call.S";
-    for source in [routines, shims, remove_routines, remove_shims] {
+    let map_routines = "research/vec-ffi/linked/sorted_map.rs";
+    let map_shims = "examples/sorted_map_call.S";
+    for source in [routines, shims, remove_routines, remove_shims, map_routines, map_shims] {
         println!("cargo:rerun-if-changed={source}");
     }
     println!("cargo:rerun-if-changed=research/vec-ffi/linked/header.rs");
@@ -32,12 +34,15 @@ fn main() {
     // demo's code. The proof of the u32 shim records that offset.
     //
     // The removal routines and their shims follow in two more objects, so
-    // adding them moved neither the insertion routines nor that offset.
+    // adding them moved neither the insertion routines nor that offset. The
+    // sorted-map routines and their shims come last, for the same reason.
     let objects = [
         assemble(&out, &manifest, shims, "raw_vec_shims"),
         compile_routines(&out, routines, "raw_vec"),
         compile_routines(&out, remove_routines, "raw_vec_remove"),
         assemble(&out, &manifest, remove_shims, "raw_vec_remove_shims"),
+        compile_routines(&out, map_routines, "sorted_map"),
+        assemble(&out, &manifest, map_shims, "sorted_map_shims"),
     ];
     for object in objects {
         println!("cargo:rustc-link-arg-examples={}", object.display());
