@@ -1,4 +1,4 @@
-//! Exercise the linked RawVec insertion routines on the ESP32-C3.
+//! Exercise the linked RawVec insertion and removal routines on the ESP32-C3.
 
 #![no_std]
 #![no_main]
@@ -9,6 +9,8 @@ use esp_println::println;
 #[path = "../research/vec-ffi/linked/header.rs"]
 mod header;
 use header::{FULL, INDEX_OUT_OF_BOUNDS, INVALID_LENGTH, OK, Pair, RawVec};
+#[path = "../src/cases/raw_vec_remove.rs"]
+mod raw_vec_remove_case;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 global_asm!(include_str!("../src/watchdog.S"));
@@ -18,6 +20,9 @@ global_asm!(include_str!("../src/watchdog.S"));
 unsafe extern "C" {
     fn call_raw_vec_u32_insert(vec: *mut RawVec<u32>, index: u32, value: u32) -> u32;
     fn call_raw_vec_pair_insert(vec: *mut RawVec<Pair>, index: u32, value: Pair) -> u32;
+    // Removal shims, in `raw_vec_remove_call.S`.
+    fn call_raw_vec_u32_remove(vec: *mut RawVec<u32>, index: u32) -> u32;
+    fn call_raw_vec_pair_remove(vec: *mut RawVec<Pair>, index: u32) -> u32;
     fn stop_boot_watchdogs();
 }
 
@@ -57,7 +62,27 @@ fn main() -> ! {
     assert_eq!(data, [111, 10, 20, 30, 40, 222]);
     println!("RawVec<u32> PASS: [10, 20, 30, 40]; statuses {statuses:?}; invalid length rejected");
     check_pairs();
+    check_removal();
     idle()
+}
+
+fn check_removal() {
+    // SAFETY: Each shim forwards to its routine, which has the contract of
+    // `raw_vec_u32_remove` for its element type.
+    let statuses = unsafe { raw_vec_remove_case::run(call_raw_vec_u32_remove, |word| word) };
+    println!(
+        "RawVec<u32> remove PASS: [10, 20, 30, 40] -> [30] -> []; statuses {statuses:?}; invalid length rejected"
+    );
+    // SAFETY: As above, with eight-byte elements.
+    let statuses = unsafe {
+        raw_vec_remove_case::run(call_raw_vec_pair_remove, |key| Pair {
+            key,
+            value: 10 * key,
+        })
+    };
+    println!(
+        "RawVec<Pair> remove PASS: [(10, 100), ..., (40, 400)] -> [(30, 300)] -> []; statuses {statuses:?}; invalid length rejected"
+    );
 }
 
 fn check_pairs() {

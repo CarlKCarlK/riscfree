@@ -31,8 +31,9 @@ Run `just prove` with Elan, Python 3, and GNU binutils installed. It checks
 the Lean proofs, then builds each firmware variant and compares the linked bytes of the
 routine it calls with the instruction words decoded by Sail: all 56 bytes of
 `popcount128`, all 112 bytes of `popcount128_swar`, all 120 bytes of
-`raw_vec_u32_insert`, all 28 bytes of its calling shim, and all 132 bytes of
-`raw_vec_pair_insert`. Lake uses the pinned
+`raw_vec_u32_insert`, all 28 bytes of its calling shim, all 132 bytes of
+`raw_vec_pair_insert`, all 92 bytes of `raw_vec_u32_remove`, and all 100 bytes
+of `raw_vec_pair_remove`. Lake uses the pinned
 Pico FV and Sail dependencies in `lake-manifest.json` and Lean 4.28.0-rc1.
 
 `popcount128SailCorrect` and `popcount128SwarSailCorrect` cover every 128-bit
@@ -106,15 +107,21 @@ The files are:
   the same for `RawVec<Pair>` (eight-byte elements) and its 33 instructions.
   [docs/rawvec-pair-cost.md](docs/rawvec-pair-cost.md) records what the second
   instance cost.
+- `proof/RawVec/Remove.lean`: the same shared layer for `RawVec<T>::remove`.
+  `proof/RawVec/U32Remove.lean` and `proof/RawVec/PairRemove.lean`, with their
+  `Instructions.lean` tables (23 and 25 instructions), instantiate it for `u32`
+  and `Pair`. [docs/rawvec-remove-cost.md](docs/rawvec-remove-cost.md) records
+  what removal cost on top of insertion.
 - `proof/RawVec/Compatibility.lean`: the original `u32` definitions and
   theorem statements, from before the generic refactoring, derived from the
   current theorems.
 - `proof/RawVec/Shim.lean`: the calling shim's instruction table and its
   composition with the routine.
-- `proof/RawVec/Nonvacuity.lean` and `proof/RawVec/PairInsert/Nonvacuity.lean`:
-  concrete machines that satisfy every premise of the RawVec and shim
-  theorems, one per execution path, built on the shared model in
-  `proof/RawVec/Model.lean`.
+- `proof/RawVec/Nonvacuity.lean`, `proof/RawVec/PairInsert/Nonvacuity.lean`,
+  `proof/RawVec/U32Remove/Nonvacuity.lean`, and
+  `proof/RawVec/PairRemove/Nonvacuity.lean`: concrete machines that satisfy
+  every premise of the RawVec and shim theorems, one per execution path, built
+  on the shared model in `proof/RawVec/Model.lean`.
 - `proof/Riscfree/RV32/`: reusable RV32 infrastructure. It provides register
   snapshots synchronized with the Sail state, a step lemma per opcode built on
   Pico FV's equivalence theorems, the platform premises, the pre-simplified
@@ -214,6 +221,36 @@ calls return to such an address. For those calls, the final `ret` is trusted to
 the hardware. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) lists
 everything still trusted about the Rust caller.
 
+### Bounded-vector removal
+
+`rawVecU32RemoveSailCorrect` and `rawVecPairRemoveSailCorrect` (each with an
+`InMachineMode` form) verify one generic `RawVec<T>::remove`
+([research/vec-ffi/linked/raw_vec_remove.rs](research/vec-ffi/linked/raw_vec_remove.rs)).
+Called with the header in `a0` and an index in `a1`, it removes the element at
+the index, moves each later element one slot toward the front with a forward
+copy loop, and decrements the length. The removed element is not returned.
+The theorems describe every slot of the new live prefix, the new length, the
+unchanged pointer and capacity, and unchanged memory outside the length word
+and the slots from the index to the new length. The vacated last slot keeps
+its old value. An invalid length (`length > capacity`, status 3) is checked
+before an invalid index (`index >= length`, status 2, including any index of
+an empty vector), and both leave all memory unchanged. Both theorems also state
+that every register except the PC, `nextPC`, and `a0`–`a4` (`a0`–`a5` for
+`Pair`) keeps its value.
+
+Removing the last element takes 9 instructions. Removing before `m > 0` later
+elements takes `15 + 4m` for `u32` and `15 + 6m` for `Pair`. The rejections take
+5 and 6. A successful call needs read permission for the elements after the
+index, write permission for the slots from the index to the new length, and
+those slots disjoint from the header and the code. Rejected calls need only
+the length and capacity words. Each routine's nonvacuity module proves the
+premises satisfiable on all four paths, plus an empty vector.
+
+The demo calls each removal routine through a shim in
+`examples/raw_vec_remove_call.S`, a copy of the insertion shim. These shims
+are not proved. `build.rs` links the removal routines and shims after the
+insertion objects, so the verified shim's call offset does not move.
+
 ## Firmware
 
 Install the Rust target and flashing tool:
@@ -231,7 +268,7 @@ just build     # Build release firmware
 just run       # Build, flash, and open the serial monitor (bit loop)
 just run swar  # Same, but call the SWAR routine in src/popcount_swar.S
 just run-raw-vec   # Build, verify the bytes, flash, and monitor RawVec
-just prove         # Check all proofs and all four routines' linked bytes
+just prove         # Check all proofs and every verified routine's linked bytes
 just kernel-check  # Optional: replay every proof module through the kernel
 ```
 
@@ -254,7 +291,7 @@ The proofs build on:
   by Basis Research, whose decoder partial-evaluation technique inspired
   our automatically generated, kernel-checked Sail decoder.
 
-The SWAR and RawVec insertion routines were generated by the
+The SWAR routine and the RawVec insertion and removal routines were generated by the
 [Rust](https://www.rust-lang.org) compiler. The firmware uses [esp-hal](https://github.com/esp-rs/esp-hal) and
 [espflash](https://github.com/esp-rs/espflash).
 

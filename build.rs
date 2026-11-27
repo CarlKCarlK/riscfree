@@ -11,9 +11,12 @@ fn main() {
 
     let routines = "research/vec-ffi/linked/raw_vec.rs";
     let shims = "examples/raw_vec_call.S";
-    println!("cargo:rerun-if-changed={routines}");
+    let remove_routines = "research/vec-ffi/linked/raw_vec_remove.rs";
+    let remove_shims = "examples/raw_vec_remove_call.S";
+    for source in [routines, shims, remove_routines, remove_shims] {
+        println!("cargo:rerun-if-changed={source}");
+    }
     println!("cargo:rerun-if-changed=research/vec-ffi/linked/header.rs");
-    println!("cargo:rerun-if-changed={shims}");
     assert_eq!(
         env::var("TARGET").expect("Cargo sets TARGET"),
         "riscv32imc-unknown-none-elf",
@@ -27,21 +30,40 @@ fn main() {
     // the linker's single `.text` rule places them next to each other. Each
     // shim's `call` offset then depends only on these two objects, not on the
     // demo's code. The proof of the u32 shim records that offset.
-    let shim_source = out.join("raw_vec_shims.rs");
+    //
+    // The removal routines and their shims follow in two more objects, so
+    // adding them moved neither the insertion routines nor that offset.
+    let objects = [
+        assemble(&out, &manifest, shims, "raw_vec_shims"),
+        compile_routines(&out, routines, "raw_vec"),
+        compile_routines(&out, remove_routines, "raw_vec_remove"),
+        assemble(&out, &manifest, remove_shims, "raw_vec_remove_shims"),
+    ];
+    for object in objects {
+        println!("cargo:rustc-link-arg-examples={}", object.display());
+    }
+}
+
+// Wrap an assembly file in a `no_std` crate and compile it to `<name>.o`.
+fn assemble(out: &Path, manifest: &Path, shims: &str, name: &str) -> PathBuf {
+    let source = out.join(format!("{name}.rs"));
     fs::write(
-        &shim_source,
+        &source,
         format!(
             "#![no_std]\ncore::arch::global_asm!(include_str!({:?}));\n",
             manifest.join(shims)
         ),
     )
-    .expect("write the RawVec shim crate");
-    let shim_object = out.join("raw_vec_shims.o");
-    compile(&shim_source, &shim_object);
-    let routine_object = out.join("raw_vec.o");
-    compile(Path::new(routines), &routine_object);
-    println!("cargo:rustc-link-arg-examples={}", shim_object.display());
-    println!("cargo:rustc-link-arg-examples={}", routine_object.display());
+    .unwrap_or_else(|error| panic!("write {}: {error}", source.display()));
+    let object = out.join(format!("{name}.o"));
+    compile(&source, &object);
+    object
+}
+
+fn compile_routines(out: &Path, routines: &str, name: &str) -> PathBuf {
+    let object = out.join(format!("{name}.o"));
+    compile(Path::new(routines), &object);
+    object
 }
 
 // Isolate the proof targets from the firmware's optimization settings and

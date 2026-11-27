@@ -8,7 +8,7 @@ check:
 build:
     cargo build --locked --release
 
-# Build the ESP32-C3 RawVec demo and check the linked insertion instructions of both routines.
+# Build the ESP32-C3 RawVec demo and check the linked instructions of all four routines.
 build-raw-vec:
     cargo build --locked --release --example raw_vec --features raw-vec-demo
     python3 research/vec-ffi/linked/check_elf.py target/riscv32imc-unknown-none-elf/release/examples/raw_vec
@@ -30,6 +30,8 @@ prove:
     just build-raw-vec
     just verify-elf RawVec.Shim target/riscv32imc-unknown-none-elf/release/examples/raw_vec
     just verify-elf RawVec.PairInsert target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    just verify-elf RawVec.U32Remove target/riscv32imc-unknown-none-elf/release/examples/raw_vec
+    just verify-elf RawVec.PairRemove target/riscv32imc-unknown-none-elf/release/examples/raw_vec
 
 # Explain each axiom the RawVec and shim theorems reach, and fail unless the executed instructions reach only the expected ones.
 axiom-paths:
@@ -37,6 +39,10 @@ axiom-paths:
         Riscfree.RawVec.callRawVecU32InsertSailCorrect {{ axiom-path-flags }}
     lake env lean --run scripts/AxiomPaths.lean RawVec.PairInsert \
         Riscfree.RawVec.PairInsert.rawVecPairInsertSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RawVec.U32Remove \
+        Riscfree.RawVec.U32Remove.rawVecU32RemoveSailCorrect {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RawVec.PairRemove \
+        Riscfree.RawVec.PairRemove.rawVecPairRemoveSailCorrect {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \

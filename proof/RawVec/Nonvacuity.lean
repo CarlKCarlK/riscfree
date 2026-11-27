@@ -64,7 +64,7 @@ def image : Model.Image where
   word index := (Model.tableWord 0x3d1 shimInstructions index).or (Model.tableWord 0x400 instructions index)
   keys := List.range' 0xf44 28 ++ List.range' 0x1000 120
 
-def frame (call : Call) : Machine := Model.frame image call
+def frame (call : Call) : Machine := Model.frame image (.ofInsert call)
 
 def initial (call : Call) : Snapshot := { a0 := call.header, a1 := call.index, a2 := call.value }
 
@@ -87,9 +87,9 @@ private theorem dataFree : ∀ index, 0xc00 ≤ index → image.word index = non
     tableWordOutside 0x400 instructions (Or.inr (by have := routineLength; omega)), Option.none_or]
 
 private theorem modelMode (call : Call) : MachineMode (machine call) returnTo :=
-  Model.modelMode call codeBase _ (by decide)
+  Model.modelMode (.ofInsert call) codeBase _ (by decide)
 
-private theorem routineImage {state : Machine} {call : Call} (modeled : Modeled image call state) :
+private theorem routineImage {state : Machine} {call : Call} (modeled : Modeled image (.ofInsert call) state) :
     CodeImage instructions codeBase state := by
   refine tableImage modeled instructions codeBase 0x1000 rfl (by decide) (by decide)
     (fun index bound byte small => by change index < 30 at bound; simp [image]; omega)
@@ -99,7 +99,7 @@ private theorem routineImage {state : Machine} {call : Call} (modeled : Modeled 
   rw [tableWordOutside 0x3d1 shimInstructions (Or.inr (by have := shimLength; omega)), Option.none_or,
     tableWordAt 0x400 instructions bound]
 
-private theorem shimCodeImage {state : Machine} {call : Call} (modeled : Modeled image call state) :
+private theorem shimCodeImage {state : Machine} {call : Call} (modeled : Modeled image (.ofInsert call) state) :
     CodeImage shimInstructions shimModelBase state := by
   refine tableImage modeled shimInstructions shimModelBase 0xf44 rfl (by decide) (by decide)
     (fun index bound byte small => by change index < 7 at bound; simp [image]; omega)
@@ -108,22 +108,22 @@ private theorem shimCodeImage {state : Machine} {call : Call} (modeled : Modeled
   rw [tableWordAt 0x3d1 shimInstructions bound, Option.some_or]
 
 private theorem modelHeader {state : Machine}
-    (modeled : Modeled image (modelCall index value length capacity old) state) :
+    (modeled : Modeled image (.ofInsert (modelCall index value length capacity old)) state) :
     Header state (modelCall index value length capacity old) :=
   Model.modelHeader modeled dataFree
 
 private theorem modelBuffer {state : Machine}
-    (modeled : Modeled image (modelCall index value length capacity old) state)
-    (small : length.toNat ≤ 1000) (valid : (modelCall index value length capacity old).valid) :
+    (modeled : Modeled image (.ofInsert (modelCall index value length capacity old)) state)
+    (small : length.toNat ≤ 1000) :
     Buffer codeBase state (modelCall index value length capacity old) :=
-  Model.modelBuffer modeled dataFree (by decide) (by rw [wordBytes]; omega) valid
+  Model.modelBuffer modeled dataFree (by decide) (by rw [wordBytes]; omega)
 
 theorem modelHypotheses (small : length.toNat ≤ 1000) :
     Hypotheses codeBase returnTo (machine (modelCall index value length capacity old))
       (modelCall index value length capacity old) (initial (modelCall index value length capacity old)) :=
   let modeled := syncModeled _ codeBase _
   ⟨(syncSync _ _).symm, rfl, rfl, rfl, Environment.ofMachine (modelMode _) (routineImage modeled),
-    modelHeader modeled, modelBuffer modeled small⟩
+    modelHeader modeled, fun _ => modelBuffer modeled small⟩
 
 end Model
 
@@ -234,7 +234,7 @@ theorem modelMachineHypotheses {index value length capacity : Word} {old : Nat �
       (modelCall index value length capacity old) (initial (modelCall index value length capacity old)) :=
   let modeled := syncModeled _ codeBase _
   ⟨(syncSync _ _).symm, rfl, rfl, rfl, modelMode _, routineImage modeled, modelHeader modeled,
-    modelBuffer modeled small⟩
+    fun _ => modelBuffer modeled small⟩
 
 theorem machineAppendRuns : ∃ final, Riscfree.RV32.run 14 (machine appendCall) = some final ∧
     final.regs.get? Register.PC = some returnTo ∧ final.regs.get? Register.x10 = some 0 :=
@@ -334,11 +334,11 @@ theorem shimModelReturnHypotheses (returnAddress : Word) (small : length.toNat �
       (modelCall index value length capacity old)
       (shimInitial returnAddress (modelCall index value length capacity old)) := by
   let call := modelCall index value length capacity old
-  have modeled := syncModeled (image := image) call shimModelBase { shimInitial returnAddress call with pc := 0 }
+  have modeled := syncModeled (image := image) (.ofInsert call) shimModelBase { shimInitial returnAddress call with pc := 0 }
   have slotAt : (saveSlot (shimInitial returnAddress call).sp).toNat = 0x4ffc := saveSlotNat
-  refine ⟨(syncSync _ _).symm, rfl, rfl, rfl, ⟨(frameState call).atSync _ _, shimCodeImage modeled,
+  refine ⟨(syncSync _ _).symm, rfl, rfl, rfl, ⟨(frameState (.ofInsert call)).atSync _ _, shimCodeImage modeled,
       routineAtCodeBase ▸ routineImage modeled⟩, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩,
-    modelHeader modeled, routineAtCodeBase ▸ modelBuffer modeled small⟩
+    modelHeader modeled, fun _ => routineAtCodeBase ▸ modelBuffer modeled small⟩
   · exact readable modeled (by rw [slotAt]) (by rw [slotAt]; decide)
   · exact writable modeled (by rw [slotAt]) (by rw [slotAt]; decide)
   · rw [slotAt]
