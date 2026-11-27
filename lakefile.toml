@@ -17,5 +17,5 @@ roots = ["Popcount", "PopcountSpec", "PopcountSwar", "RawVec", "RawVec.Nonvacuit
   "RawVec.Compatibility", "RawVec.PairInsert", "RawVec.PairInsert.Nonvacuity", "RawVec.U32Remove",
   "RawVec.U32Remove.Nonvacuity", "RawVec.PairRemove", "RawVec.PairRemove.Nonvacuity", "Riscfree.Elf", "Riscfree.NormalForm",
   "Riscfree.RV32", "Riscfree.StateRun"]
-globs = ["Popcount", "PopcountSpec", "PopcountSwar", "RawVec", "RawVec.+", "SortedMap.+", "Riscfree.Elf", "Riscfree.NormalForm",
+globs = ["Popcount", "PopcountSpec", "PopcountSwar", "RawVec", "RawVec.+", "SortedMap.+", "RangeInsert.+", "Riscfree.Elf", "Riscfree.NormalForm",
   "Riscfree.RV32.+", "Riscfree.StateRun"]

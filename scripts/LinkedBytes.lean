@@ -8,6 +8,8 @@ import SortedMap.Search.Instructions
 import SortedMap.Remove.Instructions
 import SortedMap.Insert.Table
 import Riscfree.Elf
+import RangeInsert.InsertTable
+import RangeInsert.DeleteTable
 
 /-!
 # Linked-byte checks
@@ -31,6 +33,8 @@ words of the table its proof decodes (see `proof/Riscfree/Elf.lean`):
 * `raw-vec`: `raw_vec_u32_insert`, `raw_vec_pair_insert`, `raw_vec_u32_remove`,
   and `raw_vec_pair_remove`.
 * `sorted-map`: both searches, insertion, removal, and the update routines’ call targets.
+* `range-insert`: both range insertion symbols and their call targets.
+* `range-insert-shim`: the firmware's word-aligned calling shim and its target.
 * `raw-vec-shim`: the u32 calling shim, and that its `call` reaches the
   routine exactly `routineOffset` bytes ahead.
 * `uncompressed`: the file has no compressed instructions, as the QEMU harness
@@ -57,6 +61,60 @@ def checkRawVecShim (path : String) : IO Unit := do
       proof's call reaches {RawVec.routineOffset.toNat}")
   IO.println s!"call_raw_vec_u32_insert: calls raw_vec_u32_insert {RawVec.routineOffset.toNat} bytes ahead"
 
+/-- Resolve an uncompressed Rust call pair through the signed immediates in
+the checked table. The symbol comparison is independent of disassembly. -/
+def checkCall (caller callee : Nat) (target : String)
+    (instructions : List (BitVec 32 × instruction)) (index : Nat) : IO Unit := do
+  let some (_, .UTYPE (high, link, .AUIPC)) := instructions[index]?
+    | throw (IO.userError "Expected auipc in range insertion call")
+  let some (_, .JALR (low, source, destination)) := instructions[index + 1]?
+    | throw (IO.userError "Expected jalr in range insertion call")
+  unless link == RV32.reg 1 && source == link && destination == link do
+    throw (IO.userError "Expected range insertion call to link through ra")
+  let address := (BitVec.ofNat 32 (caller + 4 * index) +
+    ((high.signExtend 32) <<< 12) + low.signExtend 32) &&& 0xfffffffe
+  unless address.toNat == callee do
+    throw (IO.userError s!"Range insertion call target differs from the symbol {target}")
+
+def checkCalls (caller : Nat) (instructions : List (BitVec 32 × instruction))
+    (targets : List (Nat × Nat × String)) : IO Unit := do
+  let sites := instructions.zipIdx.filterMap fun ((_, operation), index) =>
+    match operation with
+    | .JAL (_, destination) | .JALR (_, _, destination) =>
+      if destination == RV32.reg 0 then none else some index
+    | _ => none
+  unless sites == targets.map (fun (index, _, _) => index + 1) do
+    throw (IO.userError "Linked range insertion calls differ from the expected sites")
+  for (index, address, symbol) in targets do
+    checkCall caller address symbol instructions index
+
+def checkRangeInsert (path : String) : IO Unit := do
+  let insertWords := RangeInsert.InsertTable.instructions
+  let deleteWords := RangeInsert.DeleteTable.instructions
+  let insert ← verifyElfSymbol path RangeInsert.InsertTable.symbol (insertWords.map Prod.fst)
+  let delete ← verifyElfSymbol path RangeInsert.DeleteTable.symbol (deleteWords.map Prod.fst)
+  let upper ← verifyElfSymbol path "sorted_map_upper_bound" (SortedMap.Search.upperInstructions.map Prod.fst)
+  let lower ← verifyElfSymbol path "sorted_map_lower_bound" (SortedMap.Search.lowerInstructions.map Prod.fst)
+  let mapInsert ← verifyElfSymbol path "sorted_map_insert" (SortedMap.Insert.instructions.map Prod.fst)
+  let mapRemove ← verifyElfSymbol path "sorted_map_remove" (SortedMap.Remove.instructions.map Prod.fst)
+  let push ← verifyElfSymbol path "raw_vec_u32_insert" (RawVec.instructions.map Prod.fst)
+  checkCalls insert insertWords [
+    (17, upper, "sorted_map_upper_bound"), (39, mapInsert, "sorted_map_insert"),
+    (52, mapInsert, "sorted_map_insert"), (60, delete, "delete_extra"),
+    (104, delete, "delete_extra")]
+  checkCalls delete deleteWords [
+    (19, lower, "sorted_map_lower_bound"), (55, push, "raw_vec_u32_insert"),
+    (91, mapRemove, "sorted_map_remove")]
+  IO.println "Range insertion: all eight linked call targets checked"
+
+def checkRangeInsertShim (path : String) : IO Unit := do
+  let insert ← verifyElfSymbol path RangeInsert.InsertTable.symbol
+    (RangeInsert.InsertTable.instructions.map Prod.fst)
+  let shim ← verifyElfSymbol path "call_range_insert_u32"
+    [0xff010113, 0x00112623, 0x00000097, 0xe44080e7, 0x00c12083, 0x01010113, 0x00008067]
+  unless shim == insert + 0x1b4 do
+    throw (IO.userError "Range insertion call target differs in the firmware shim")
+
 def runCheck : String → String → IO Unit
   | "popcount", path => verifyElf path "popcount128" (Popcount.instructions.map Prod.fst)
   | "popcount-swar", path =>
@@ -79,13 +137,15 @@ def runCheck : String → String → IO Unit
     unless remove + SortedMap.Remove.searchOffset.toNat == lower + 2 ^ 32 &&
         remove + SortedMap.Remove.vectorOffset.toNat == vector + 2 ^ 32 do
       throw (IO.userError "sorted_map_remove call targets differ from the Lean proof")
+  | "range-insert", path => checkRangeInsert path
+  | "range-insert-shim", path => checkRangeInsertShim path
   | "raw-vec-shim", path => checkRawVecShim path
   | "uncompressed", path => verifyUncompressed path
   | check, _ => throw (IO.userError s!"unknown linked-byte check {check}")
 
 -- The failure messages that show a negative test failed for the intended reason.
 def rejectionReasons : List String :=
-  ["bytes differ from the Lean proof", "EF_RISCV_RVC is set"]
+  ["bytes differ from the Lean proof", "Range insertion call target differs", "EF_RISCV_RVC is set"]
 
 def expectRejection (check path : String) : IO Unit := do
   let failure ← try

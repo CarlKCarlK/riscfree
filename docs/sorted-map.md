@@ -21,14 +21,14 @@ same deletion pass. Both paths maintain a cached set cardinality.
 | Insert a start | `insert(key, value)` | `sorted_map_insert` |
 | Delete a collected key | `remove(&key)` | `sorted_map_remove` |
 
-A future adapter can yield a shared reference to each key and an exclusive
-reference to its value. The underlying slice can split the first entry from
-the rest so the algorithm can retain its value reference across the scan.
-A bounded vector can collect keys during the traversal. The existing
-`OrderedMap` experiment's cloned suffix is suitable as an oracle. The
-production algorithm needs to be able to stop before the end of the suffix.
-`internalAddCLen` establishes set union and cached cardinality at the mathematical
-algorithm layer. Range insertion through the adapter is the next task.
+The range insertion adapter yields a shared key reference and a mutable
+value reference for each entry. The slice iterator yields disjoint values
+so the algorithm can retain the first value reference across the scan.
+A bounded vector collects keys during traversal. The existing `OrderedMap`
+experiment's cloned suffix is suitable as an oracle. The production
+algorithm can stop before the end of the suffix. `internalAddCLen`
+establishes set union and cached cardinality at the mathematical layer.
+[Range insertion experiment](range-insert.md)
 [Ordered-map experiment](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/tree/main/rust-tests)
 [Mathematical insertion and cardinality proofs](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/blob/main/RangeSetBlaze/AlgoC.lean)
 
