@@ -26,3 +26,15 @@ they are more specific.
   `proof/RawVec/Nonvacuity.lean` and `docs/rawvec-assurance.md`.
 - When a theorem's statement changes, update its nonvacuity proof in the same
   change.
+
+## Compressed instructions
+
+- Prefer uncompressed RISC-V instructions (`riscv32im` rather than
+  `riscv32imc`) throughout the verified code and, where practical, its callers.
+  The pinned Sail model needs four-byte-aligned return addresses, which
+  uncompressed callers always provide. The verified routines and the QEMU
+  harness in `emulator/` are built this way.
+- Investigate whether compressed instructions can be disabled before
+  introducing additional calling shims.
+- Document any exceptions and their effect on the formal guarantees, as
+  `docs/rawvec-assurance.md` does for the ESP32-C3 shims.
