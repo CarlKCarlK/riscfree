@@ -10,33 +10,27 @@ open Riscfree.RV32
 open Riscfree.RawVec (Word Readable)
 open Empty (Snapshot)
 
-def helperReturned (pc : Word) (state : DeleteExtra.Snapshot) : Snapshot where
-  pc := pc
-  sp := state.sp
-  ra := state.ra
-  s0 := state.s0
-  s1 := state.s1
-  a0 := state.a0
-  a1 := state.a1
-  a2 := state.a2
-  a3 := state.a3
-  a4 := state.a4
-  a5 := state.a5
-  s2 := state.s2
-  s3 := state.s3
-  s4 := state.s4
-  s5 := state.s5
+/-- The caller's registers after a helper call: the helper's final values
+over the caller's own registers. -/
+def helperReturned (pc : Word) (caller : Snapshot) (state : DeleteExtra.Snapshot) : Snapshot :=
+  { caller with
+    pc := pc, ra := state.ra, sp := state.sp, t1 := state.t1, s0 := state.s0, s1 := state.s1,
+    a0 := state.a0, a1 := state.a1, a2 := state.a2, a3 := state.a3, a4 := state.a4,
+    a5 := state.a5, a6 := state.a6, a7 := state.a7, s2 := state.s2, s3 := state.s3,
+    s4 := state.s4, s5 := state.s5, s6 := state.s6, s7 := state.s7, s8 := state.s8,
+    s9 := state.s9, s10 := state.s10 }
 
-/-- Resuming the caller keeps the helper's values in registers the caller
-does not track. -/
-theorem helperReturnedSync (base helperBase pc : Word) (background : Machine)
+theorem helperInside : ∀ index ∈ tracked DeleteExtra.Snapshot, index ∈ tracked Snapshot := by
+  decide
+
+/-- The helper's end machine, over the caller's machine, is the caller's
+snapshot of the returned registers. -/
+theorem helperReturnedSync (base helperBase pc : Word) (background : Machine) (caller : Snapshot)
     (state : DeleteExtra.Snapshot) (target : base + pc = helperBase + state.pc) :
-    sync base (sync helperBase background state) (helperReturned pc state) =
-      sync helperBase background state := by
-  refine syncInside helperBase base state state (helperReturned pc state)
-    (by decide) ?_ target.symm
-  intro index _
-  fin_cases index <;> rfl
+    sync helperBase (sync base background caller) state =
+      sync base background (helperReturned pc caller state) :=
+  syncInside base helperBase caller (helperReturned pc caller state) state helperInside
+    (fun index _ => by fin_cases index <;> rfl) target
 
 /-- The linked return at offset 0x1a8 jumps to the common epilogue. -/
 theorem finishExtension {base returnAddress : Word} {original : Machine} {initial : Snapshot}

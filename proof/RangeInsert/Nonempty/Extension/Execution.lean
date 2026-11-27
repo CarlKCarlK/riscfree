@@ -99,108 +99,81 @@ theorem ExtensionPrefix.writesAwayFromSaved {base returnAddress : Word} {origina
   have fits := premises.frame.frameFits
   exact premises.writesAway byte cacheAway endAway (Or.inr (by omega))
 
-private theorem runThree {first middle last : Nat} {original entered resumed final : Machine}
-    (prefixRun : run first original = some entered)
-    (helperRun : run middle entered = some resumed) (finish : run last resumed = some final) :
-    run (first + middle + last) original = some final := by
-  rw [runAdd, runAdd, prefixRun, Option.bind_some, helperRun, Option.bind_some]
-  exact finish
-
-private theorem resumeExtension {base returnAddress : Word} {original entered : Machine}
+/-- After the helper returns to `+0x1a8`, the caller returns in 10
+instructions. `caller` is the caller's snapshot at the call and `background`
+the machine under it. -/
+private theorem resumeExtension {base returnAddress : Word} {original : Machine}
     {initial : Snapshot} (frame : Empty.Frame base returnAddress original initial)
-    (entryMachine : MachineState entered)
-    (entryRegions : entered.regs.get? Register.pma_regions = original.regs.get? Register.pma_regions)
-    (helperBase : Word) (helperFinal : DeleteExtra.Snapshot) (memory : ByteMemory)
+    (background : Machine) (machine : MachineState background)
+    (regions : background.regs.get? Register.pma_regions = original.regs.get? Register.pma_regions)
+    (caller : Snapshot) (helperBase : Word) (helperFinal : DeleteExtra.Snapshot) (memory : ByteMemory)
     (target : base + 0x1a8#32 = helperBase + helperFinal.pc)
     (sp : helperFinal.sp = Empty.frameBase initial.sp)
     (codeKept : ∀ byte, base.toNat ≤ byte → byte < base.toNat + 4 * InsertTable.instructions.length →
       memory[byte]? = original.mem[byte]?)
     (savedKept : ∀ byte, initial.sp.toNat - 28 ≤ byte → byte < initial.sp.toNat →
       memory[byte]? = (Empty.pushed original.mem initial)[byte]?) :
-    ∃ final, run 10 (sync helperBase { entered with mem := memory } helperFinal) = some final ∧
-      final.regs.get? Register.PC = some returnAddress ∧ final.mem = memory := by
-  let resumed := sync helperBase { entered with mem := memory } helperFinal
-  let outer := helperReturned (0x1a8#32) helperFinal
-  have resumedMemory : resumed.mem = memory :=
-    syncMem (base := helperBase) (frame := { entered with mem := memory }) helperFinal
-  have syncOuter : sync base resumed outer = resumed :=
-    helperReturnedSync base helperBase 0x1a8#32 { entered with mem := memory } helperFinal target
-  have topRegions : resumed.regs.get? Register.pma_regions = entered.regs.get? Register.pma_regions :=
-    syncFrame (base := helperBase) (frame := { entered with mem := memory }) helperFinal
-      Register.pma_regions (by decide) (by decide) (fun _ _ => reg_of_fin_neq_pma_regions)
-  have regions := topRegions.trans entryRegions
-  have after : MachineState resumed := (entryMachine.withMemory memory).atSync helperBase helperFinal
-  have image : CodeImage InsertTable.instructions base resumed :=
-    (frame.code.withMemory memory codeKept).transfer regions resumedMemory
+    run 10 (sync helperBase { sync base background caller with mem := memory } helperFinal) =
+      some (sync base { background with mem := memory }
+        (Empty.restore initial (helperReturned 0x1a8#32 caller helperFinal) (returnAddress - base))) := by
+  let outer := helperReturned 0x1a8#32 caller helperFinal
+  have withMem := syncWithMem base background caller memory
+  have returned := helperReturnedSync base helperBase 0x1a8#32 { background with mem := memory }
+    caller helperFinal target
+  have resumed : sync helperBase { sync base background caller with mem := memory } helperFinal =
+      sync base { background with mem := memory } outer := by
+    rw [withMem]
+    exact returned
+  have image : CodeImage InsertTable.instructions base { background with mem := memory } :=
+    (frame.code.withMemory memory codeKept).transfer regions rfl
   have saved (offset : Word) (value : Word) (member : offset ∈ ([44, 40, 36, 32, 28, 24, 20] : List Word))
       (contents : WordAt (Empty.pushed original.mem initial) (Empty.frameBase initial.sp + offset).toNat value) :
-      WordAt resumed.mem (Empty.frameBase initial.sp + offset).toNat value := by
+      WordAt ({ background with mem := memory } : Machine).mem
+        (Empty.frameBase initial.sp + offset).toNat value := by
     have bound : 20 ≤ offset.toNat ∧ offset.toNat ≤ 44 := by
       simp only [List.mem_cons, List.not_mem_nil, or_false] at member
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
-    rw [resumedMemory]
     refine contents.congr fun byte first last => ?_
     rw [Empty.frameAddress frame.frameFits offset bound.2] at first last
     have fits := frame.frameFits
     exact savedKept byte (by omega) (by omega)
-  have returned := finishExtension frame after image regions saved outer rfl sp
-  rw [syncOuter] at returned
-  let last := Empty.restore initial outer (returnAddress - base)
-  exact ⟨sync base resumed last, returned, Empty.returnPc (base := base) resumed last rfl,
-    (syncMem (base := base) (frame := resumed) last).trans resumedMemory⟩
+  rw [resumed]
+  exact finishExtension frame (machine.withMemory memory) image regions saved outer rfl sp
 
-/-- The same intermediate machine connects the helper run and the caller epilogue. -/
-private theorem continueExtension {base returnAddress : Word} {original entered : Machine}
+theorem completeExtensionRun {base returnAddress : Word} {original : Machine}
     {initial : Snapshot} (frame : Empty.Frame base returnAddress original initial)
-    (entryMachine : MachineState entered)
-    (entryRegions : entered.regs.get? Register.pma_regions = original.regs.get? Register.pma_regions)
-    (finalState : DeleteExtra.Snapshot) (memory : ByteMemory)
-    (target : base + 0x1a8#32 = (base + extensionHelperOffset) + finalState.pc)
-    (sp : finalState.sp = Empty.frameBase initial.sp)
-    (codeKept : ∀ byte, base.toNat ≤ byte → byte < base.toNat + 4 * InsertTable.instructions.length →
-      memory[byte]? = original.mem[byte]?)
-    (savedKept : ∀ byte, initial.sp.toNat - 28 ≤ byte → byte < initial.sp.toNat →
-      memory[byte]? = (Empty.pushed original.mem initial)[byte]?)
-    {first middle : Nat} (ran : run first original = some entered)
-    (throughHelper : run middle entered =
-      some (sync (base + extensionHelperOffset) { entered with mem := memory } finalState)) :
-    ∃ final, run (first + middle + 10) original = some final ∧
-      final.regs.get? Register.PC = some returnAddress ∧ final.mem = memory := by
-  obtain ⟨final, rest, returned, memoryAfter⟩ := resumeExtension frame
-    entryMachine entryRegions (base + extensionHelperOffset) finalState memory target sp codeKept savedKept
-  exact ⟨final, runThree ran throughHelper rest, returned, memoryAfter⟩
-
-theorem completeExtensionRun {base returnAddress : Word} {original entered : Machine}
-    {initial : Snapshot} (frame : Empty.Frame base returnAddress original initial)
-    {count helperCount : Nat} {helperCall : DeleteExtra.Call} {scratch : DeleteExtra.Scratch}
-    {accepted : Nat} {helperSp : Word} {helperFinal : DeleteExtra.Snapshot} {memory : ByteMemory}
-    (ran : run count original = some entered)
-    (entryMachine : MachineState entered)
-    (ranHelper : run helperCount entered =
-      some (sync (base + extensionHelperOffset) { entered with mem := memory } helperFinal))
-    (result : DeleteExtra.ResultMemory helperSp helperCall scratch accepted entered.mem memory)
+    (background : Machine) (machine : MachineState background)
+    (regions : background.regs.get? Register.pma_regions = original.regs.get? Register.pma_regions)
+    (caller : Snapshot) {count helperCount : Nat} {helperCall : DeleteExtra.Call}
+    {scratch : DeleteExtra.Scratch} {accepted : Nat} {helperSp : Word}
+    {helperFinal : DeleteExtra.Snapshot} {memory : ByteMemory}
+    (ran : run count original = some (sync base background caller))
+    (ranHelper : run helperCount (sync base background caller) =
+      some (sync (base + extensionHelperOffset) { sync base background caller with mem := memory }
+        helperFinal))
+    (result : DeleteExtra.ResultMemory helperSp helperCall scratch accepted background.mem memory)
     (target : base + 0x1a8#32 = (base + extensionHelperOffset) + helperFinal.pc)
     (sp : helperFinal.sp = Empty.frameBase initial.sp)
-    (entryRegions : entered.regs.get? Register.pma_regions = original.regs.get? Register.pma_regions)
     (codeApart : ∀ byte, base.toNat ≤ byte → byte < base.toNat + 4 * InsertTable.instructions.length →
       ¬ DeleteExtra.HelperFootprint helperSp helperCall scratch accepted byte)
     (codeKept : ∀ byte, base.toNat ≤ byte → byte < base.toNat + 4 * InsertTable.instructions.length →
-      entered.mem[byte]? = original.mem[byte]?)
+      background.mem[byte]? = original.mem[byte]?)
     (savedApart : ∀ byte, initial.sp.toNat - 28 ≤ byte → byte < initial.sp.toNat →
       ¬ DeleteExtra.HelperFootprint helperSp helperCall scratch accepted byte)
     (savedKept : ∀ byte, initial.sp.toNat - 28 ≤ byte → byte < initial.sp.toNat →
-      entered.mem[byte]? = (Empty.pushed original.mem initial)[byte]?) :
-    ∃ final, run (count + helperCount + 10) original = some final ∧
-      final.regs.get? Register.PC = some returnAddress ∧ final.mem = memory ∧
-      DeleteExtra.ResultMemory helperSp helperCall scratch accepted entered.mem memory := by
+      background.mem[byte]? = (Empty.pushed original.mem initial)[byte]?) :
+    run (count + helperCount + 10) original =
+      some (sync base { background with mem := memory }
+        (Empty.restore initial (helperReturned 0x1a8#32 caller helperFinal) (returnAddress - base))) := by
   have codeAfter : ∀ byte, base.toNat ≤ byte → byte < base.toNat + 4 * InsertTable.instructions.length →
       memory[byte]? = original.mem[byte]? := fun byte first last =>
     (result.others byte (codeApart byte first last)).trans (codeKept byte first last)
   have savedAfter : ∀ byte, initial.sp.toNat - 28 ≤ byte → byte < initial.sp.toNat →
       memory[byte]? = (Empty.pushed original.mem initial)[byte]? := fun byte first last =>
     (result.others byte (savedApart byte first last)).trans (savedKept byte first last)
-  obtain ⟨final, runToFinal, returned, finalMemory⟩ := continueExtension frame entryMachine entryRegions
-    helperFinal memory target sp codeAfter savedAfter ran ranHelper
-  exact ⟨final, runToFinal, returned, finalMemory, result⟩
+  have rest := resumeExtension frame background machine regions caller (base + extensionHelperOffset)
+    helperFinal memory target sp codeAfter savedAfter
+  rw [runAdd, runAdd, ran, Option.bind_some, ranHelper, Option.bind_some]
+  exact rest
 
 end Riscfree.RangeInsert.Nonempty

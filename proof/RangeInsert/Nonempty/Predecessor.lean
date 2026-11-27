@@ -206,6 +206,10 @@ structure Inspected (initial : Snapshot) (call : Call) (state : Snapshot) : Prop
   predecessorEndAddress : state.a3 = call.search.wordSlot (call.rank - 1) + 4#32
   gap : state.a4 = (Step.lessWord call.predecessor.value 0xffffffff#32 &&&
     Step.lessWord (call.predecessor.value + 1#32) call.start)
+  -- The registers only the callees write still hold their entry values.
+  untouched : state.t0 = initial.t0 ∧ state.t1 = initial.t1 ∧ state.a6 = initial.a6 ∧
+    state.a7 = initial.a7 ∧ state.s6 = initial.s6 ∧ state.s7 = initial.s7 ∧
+    state.s8 = initial.s8 ∧ state.s9 = initial.s9 ∧ state.s10 = initial.s10
 
 /-- Inspect the predecessor with a positive upper-bound rank. All writes to
 this point are in the entry frame. -/
@@ -319,7 +323,8 @@ theorem inspectPredecessor {base returnAddress : Word} {original : Machine} {ini
     refine runStep (step7c machine image _ rfl) ?_
     refine runStep (step80 machine image _ rfl) ?_
     rfl
-  · refine ⟨rfl, rfl, arguments.header, rfl, rfl, arguments.stop, arguments.start, rfl, rfl, rfl, ?_, ?_, ?_⟩
+  · refine ⟨rfl, rfl, arguments.header, rfl, rfl, arguments.stop, arguments.start, rfl, rfl, rfl, ?_, ?_, ?_,
+      ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
     · change offset + 0xfffffff8#32 = call.search.wordSlot (call.rank - 1)
       dsimp only [offset]
       rw [rankWord, dataAddress, keyAddress, ← indexNext, Nat.add_sub_cancel]

@@ -56,25 +56,32 @@ theorem runContained {base returnAddress : Word} {original : Machine} {initial :
     ∃ state : Snapshot,
       run call.containedCount (sync base original { initial with pc := 0 }) =
         some (sync base { original with mem := pushed original.mem initial }
-          (restore initial state (returnAddress - base))) := by
+          (restore initial state (returnAddress - base))) ∧
+      (state.t0 = initial.t0 ∧ state.t1 = initial.t1 ∧ state.a6 = initial.a6 ∧
+        state.a7 = initial.a7 ∧ state.s6 = initial.s6 ∧ state.s7 = initial.s7 ∧
+        state.s8 = initial.s8 ∧ state.s9 = initial.s9 ∧ state.s10 = initial.s10) := by
   obtain ⟨state, inspected, regs⟩ := inspectPredecessor premises.toFrame premises.arguments
     premises.map premises.nonempty premises.found
   have machine := premises.mode.toMachineState
   have image := premises.toFrame.pushedImage
-  obtain ⟨exit, returned⟩ : ∃ exit : Snapshot,
+  obtain ⟨exit, returned, kept⟩ : ∃ exit : Snapshot,
       run 11 (sync base { original with mem := pushed original.mem initial } state) =
         some (sync base { original with mem := pushed original.mem initial }
-          (restore initial exit (returnAddress - base))) := by
+          (restore initial exit (returnAddress - base))) ∧
+      (exit.t0 = initial.t0 ∧ exit.t1 = initial.t1 ∧ exit.a6 = initial.a6 ∧
+        exit.a7 = initial.a7 ∧ exit.s6 = initial.s6 ∧ exit.s7 = initial.s7 ∧
+        exit.s8 = initial.s8 ∧ exit.s9 = initial.s9 ∧ exit.s10 = initial.s10) := by
     have touches : state.a4 = 0#32 := by
       rw [regs.gap]
       exact noStrictGap (Nat.le_trans premises.nonempty premises.covered)
-    refine ⟨{ state with pc := 0x124 }, runStep (branchTouches machine image _ regs.pc touches) ?_⟩
+    refine ⟨{ state with pc := 0x124 }, runStep (branchTouches machine image _ regs.pc touches) ?_,
+      regs.untouched⟩
     refine runStep (branchCovered machine image _ rfl (by
       change state.s1.toNat ≤ state.a2.toNat
       rw [regs.stop, regs.predecessorEnd]
       exact premises.covered)) ?_
     exact premises.toFrame.epilogue _ rfl regs.sp
-  refine ⟨exit, ?_⟩
+  refine ⟨exit, ?_, kept⟩
   rw [show call.containedCount = (33 + call.search.count .upper) + 11 by
     unfold Call.containedCount; omega, runAdd, inspected, Option.bind_some]
   exact returned
@@ -92,11 +99,11 @@ theorem ContainedPremises.run {base returnAddress : Word} {original : Machine}
       (∀ key ∉ [Register.PC, .nextPC, .x10, .x11, .x12, .x13, .x14, .x15],
         final.regs.get? key = original.regs.get? key) ∧
       ∀ byte, OutsideFrame initial.sp byte → final.mem[byte]? = original.mem[byte]? := by
-  obtain ⟨state, ran⟩ := runContained premises
+  obtain ⟨state, ran, kept⟩ := runContained premises
   let final := restore initial state (returnAddress - base)
   have pc := returnPc (base := base) { original with mem := pushed original.mem initial } final rfl
   have registers := restoreRegisters premises.entry (pushed original.mem initial) state
-    (returnAddress - base)
+    (returnAddress - base) kept
   refine ⟨_, (congrArg (Riscfree.RV32.run call.containedCount) premises.entry).trans ran,
     pc, registers, fun byte outside => ?_⟩
   rw [syncMem]

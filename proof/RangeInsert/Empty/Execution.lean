@@ -29,9 +29,20 @@ structure Snapshot where
   s3 : Word
   s4 : Word
   s5 : Word
+  -- Registers only the callees write. Tracking them lets each callee's
+  -- snapshot embed in this one.
+  t0 : Word := 0
+  t1 : Word := 0
+  a6 : Word := 0
+  a7 : Word := 0
+  s6 : Word := 0
+  s7 : Word := 0
+  s8 : Word := 0
+  s9 : Word := 0
+  s10 : Word := 0
 
 instance : RegisterView Snapshot where
-  tracked := [1, 2, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21]
+  tracked := [1, 2, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
   pc state := state.pc
   value state index := match index.val with
     | 1 => state.ra
@@ -48,6 +59,15 @@ instance : RegisterView Snapshot where
     | 19 => state.s3
     | 20 => state.s4
     | 21 => state.s5
+    | 5 => state.t0
+    | 6 => state.t1
+    | 16 => state.a6
+    | 17 => state.a7
+    | 22 => state.s6
+    | 23 => state.s7
+    | 24 => state.s8
+    | 25 => state.s9
+    | 26 => state.s10
     | _ => 0
   distinct := by decide
   nonzero := by decide
