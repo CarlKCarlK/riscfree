@@ -3,6 +3,7 @@ import PicoFV.RV32IM.RVSail.Opcodes.beq
 import PicoFV.RV32IM.RVSail.Opcodes.bne
 import PicoFV.RV32IM.RVSail.Opcodes.bgeu
 import PicoFV.RV32IM.RVSail.Opcodes.bltu
+import PicoFV.RV32IM.RVSail.Opcodes.jal
 
 namespace Riscfree.RV32
 
@@ -87,5 +88,19 @@ theorem bltuEffect (state : Machine) (left right : regidx) (offset : BitVec 13)
   have next := lowBitClear _ aligned 1 (by decide)
   by_cases taken : leftValue.toNat < rightValue.toNat <;>
     simp [PureSpec.RV32.execute_BLTU_pure, taken, low, next, writeReg_state_success]
+
+-- `j` (`jal x0`) through Pico's pure equivalence, with the alignment fact
+-- proved in the kernel. Pico's `execute_JAL_equiv` uses compiled evaluation
+-- for it (`BitVec.mod_4_zero_equiv_32`).
+theorem jalEffect (state : Machine) (imm : BitVec 21) (pc : BitVec 32)
+    (pcRead : Sail.readReg Register.PC state = .ok pc state)
+    (misaRead : Sail.readReg Register.misa state = .ok misa state)
+    (aligned : (pc + imm.signExtend 32) % 4 = 0) :
+    execute_instruction (.JAL (imm, .Regidx 0)) state =
+      .ok (.Retire_Success ()) (write_reg_state state Register.nextPC (pc + imm.signExtend 32)) := by
+  rw [PureSpec.RV32.execute_JAL_pure_equiv ⟨imm, 0, pc⟩ (.Regidx 0) pcRead misaRead]
+  have low := lowBitClear _ aligned 0 (by decide)
+  have next := lowBitClear _ aligned 1 (by decide)
+  simp [PureSpec.RV32.execute_JAL_pure, low, next, writeReg_state_success, write_xreg, regidx_to_fin]
 
 end Riscfree.RV32

@@ -1,4 +1,3 @@
-import Riscfree.Elf
 import RawVec.PairInsert.Instructions
 import RawVec.Insert
 
@@ -521,8 +520,5 @@ theorem rawVecPairInsertSailCorrectInMachineMode (base returnAddress : Word) (or
     indexArgument keyArgument valueArgument (Environment.ofMachine mode image) header buffer
 
 end Run
-
-def verifyElf (path : String) : IO Unit :=
-  Riscfree.verifyElf path "raw_vec_pair_insert" (instructions.map Prod.fst)
 
 end Riscfree.RawVec.PairInsert

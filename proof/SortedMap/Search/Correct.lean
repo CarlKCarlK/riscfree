@@ -1,4 +1,3 @@
-import Riscfree.Elf
 import SortedMap.Search.Instructions
 
 /-!
@@ -286,17 +285,3 @@ theorem sortedMapSearchSailCorrectSorted (bound : Bound) (base returnAddress : W
   exact ⟨final, ran, pc, by rw [← result_eq_rank bound call sorted]; exact result, memory⟩
 
 end Riscfree.SortedMap.Search
-
-namespace Riscfree.SortedMap.LowerBound
-
-def verifyElf (path : String) : IO Unit :=
-  Riscfree.verifyElf path "sorted_map_lower_bound" (Search.lowerInstructions.map Prod.fst)
-
-end Riscfree.SortedMap.LowerBound
-
-namespace Riscfree.SortedMap.UpperBound
-
-def verifyElf (path : String) : IO Unit :=
-  Riscfree.verifyElf path "sorted_map_upper_bound" (Search.upperInstructions.map Prod.fst)
-
-end Riscfree.SortedMap.UpperBound

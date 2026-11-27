@@ -85,3 +85,22 @@ Do these only when an application above needs them:
   `RawVec/Insert.lean` and `RawVec/Remove.lean` (about 60 duplicated lines).
   This would change the insertion theorems' statements, so do it together with
   an update of `Compatibility.lean`.
+
+## Deferred build-time work
+
+Measured on the 32-thread development machine with everything built:
+`just prove` took about 78 s before the removal proofs (axiom audit 18 s,
+`axiom-paths` 47 s, linked-byte checks 8 s) and about 110 s with them. A clean build of the project's proofs takes about
+1,116 s, of which `DecoderNormalForm` takes 949 s.
+
+- Split each future routine's step lemmas into several independent modules
+  that Lake can elaborate in parallel, as a convention for new routines. Today
+  `RawVec/PairInsert/Instructions.lean` takes 75 s, and every edit to it or to
+  a module it imports pays that cost. Leave the existing proofs as they are
+  unless they are edited heavily.
+- Speed up `just axiom-paths` (47 s), now the largest part of `just prove`.
+- Remove `--reference` from `scripts/AxiomAudit.lean` once the module-by-module
+  selection has agreed with it through a few more proof additions.
+- Consider a separate fast `just check` for proof development if `just prove`
+  becomes slow again.
+- Speed up the decoder normal form (949 s). It runs only on rare rebuilds.

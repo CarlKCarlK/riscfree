@@ -33,7 +33,7 @@ FORBIDDEN = [
 
 FORBIDDEN_IN_LEAN = [
     (r"#eval\b|\brun_cmd\b|\brun_elab\b|\brun_meta\b|\brun_tac\b",
-     "code runs during elaboration; keep checks like `verifyElf` in the justfile"),
+     "code runs during elaboration; keep checks like the linked-byte check in scripts/"),
     (r"^\s*(?:builtin_)?initialize\b", "code runs when the module loads"),
 ]
 

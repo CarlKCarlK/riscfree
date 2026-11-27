@@ -6,11 +6,13 @@ import RawVec.Access
 The routine saves `ra`, `s0`, `s1`, and `s2` in a 16-byte frame, rejects an
 invalid length, and calls `sorted_map_lower_bound`, which lies `0x34` bytes
 before it. If the entry at the returned position has the key, it restores the
-frame and tail-calls `raw_vec_pair_remove`, `0x1dc` bytes before it, with
+frame and tail-calls `raw_vec_pair_remove`, `0x1a4` bytes before it, with
 `t1`. Otherwise it restores the frame and returns `ABSENT` (5).
 
-The `auipc`/`jalr` pairs come from the linker, so the table records the words
-of the linked demo, and `verifyElf` checks both call offsets.
+The `auipc`/`jalr` pairs come from the linker, so the table records the linked
+words. `build.rs` and `emulator/build.rs` link `sorted_map.o` directly after
+the RawVec routines, so the offsets are the same in the ESP32-C3 demo and the
+QEMU harness, and `scripts/LinkedBytes.lean` checks both.
 
 The routine writes `ra`, so its proof tracks `ra` and handles each `ret` and
 call itself rather than through `Platform`.
@@ -51,7 +53,7 @@ def instructions : List (Word × instruction) :=
   , (0x00012903, .LOAD (0, reg 2, reg 18, false, 4))
   , (0x01010113, .ITYPE (16, reg 2, reg 2, .ADDI))
   , (0x00000317, .UTYPE (0, reg 6, .AUIPC))
-  , (0xdb430067, .JALR (0xdb4, reg 6, reg 0))
+  , (0xdec30067, .JALR (0xdec, reg 6, reg 0))
   , (0x00c12083, .LOAD (12, reg 2, reg 1, false, 4))
   , (0x00812403, .LOAD (8, reg 2, reg 8, false, 4))
   , (0x00412483, .LOAD (4, reg 2, reg 9, false, 4))
@@ -61,9 +63,9 @@ def instructions : List (Word × instruction) :=
   ]
 
 -- The callees, relative to the routine: `sorted_map_lower_bound` 0x34 bytes
--- before it and `raw_vec_pair_remove` 0x1dc bytes before it.
+-- before it and `raw_vec_pair_remove` 0x1a4 bytes before it.
 def searchOffset : Word := 0xffffffcc
-def vectorOffset : Word := 0xfffffe24
+def vectorOffset : Word := 0xfffffe5c
 
 set_option maxRecDepth 32768 in
 set_option maxHeartbeats 16000000 in
@@ -437,24 +439,24 @@ theorem step70 (state : Snapshot) (atPC : state.pc = 0x70#32) :
   rw [viewPc, atPC, offsetAdd base _ _ 0x70#32 (by decide)]
   advance [viewPc, atPC]
 
--- `jr -0x24c(t1)` enters `raw_vec_pair_remove`, whose `ret` returns to our caller.
+-- `jr -0x214(t1)` enters `raw_vec_pair_remove`, whose `ret` returns to our caller.
 theorem step74 (state : Snapshot) (atPC : state.pc = 0x74#32) (link : state.t1 = base + 0x70#32) :
     step (sync base { original with mem := memory } state) = some (sync base { original with mem := memory } { state with pc := vectorOffset }) := by
   obtain ⟨fetched, decoded⟩ := fetchDecode machine image state ⟨29, by decide⟩ atPC
   have synced := (machine.withMemory memory).atSync base state
   obtain ⟨misa, misaRead⟩ := synced.misa
   obtain ⟨config, configRead⟩ := synced.mseccfg
-  have target : state.t1 + (0xdb4#12).signExtend 32 = base + vectorOffset := by
+  have target : state.t1 + (0xdec#12).signExtend 32 = base + vectorOffset := by
     rw [link, offsetAdd base _ _ vectorOffset (by decide)]
   have targetAligned : (base + vectorOffset).toNat % 4 = 0 :=
     alignedTargetNat image.aligned vectorOffset (by decide)
   obtain ⟨bit0, bit1⟩ := alignedBits _ targetAligned
   refine Step.jalr fetched decoded (syncRead state (index := 6) (by decide)) misaRead
     synced.privilege configRead ?_ ?_ ⟨rfl, fun _ _ => rfl⟩
-  · change BitVec.ofBool (state.t1 + (0xdb4#12).signExtend 32)[1] = 0#1
+  · change BitVec.ofBool (state.t1 + (0xdec#12).signExtend 32)[1] = 0#1
     rw [target, bit1]
     rfl
-  · change base + vectorOffset = 0xfffffffe#32 &&& (state.t1 + (0xdb4#12).signExtend 32)
+  · change base + vectorOffset = 0xfffffffe#32 &&& (state.t1 + (0xdec#12).signExtend 32)
     rw [target, maskEven _ bit0]
 
 /-! ## The epilogue of a call that returns itself -/

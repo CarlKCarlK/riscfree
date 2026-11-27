@@ -1,0 +1,15 @@
+[build]
+# No compressed instructions: every call leaves a word-aligned return address.
+target = "riscv32im-unknown-none-elf"
+
+[target.riscv32im-unknown-none-elf]
+# QEMU's generic `virt` board, with the C extension disabled to match the
+# pinned Sail model. `-bios none` starts the hart in machine mode at the
+# start of RAM. The SiFive test device's exit status becomes QEMU's, and
+# `timeout` stops a hung run.
+runner = [
+  "timeout", "60",
+  "qemu-system-riscv32", "-machine", "virt", "-cpu", "rv32,c=false",
+  "-bios", "none", "-display", "none", "-serial", "stdio", "-monitor", "none",
+  "-kernel",
+]

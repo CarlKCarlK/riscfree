@@ -5,7 +5,6 @@ import PicoFV.RV32IM.RVSail.Opcodes.add
 import PicoFV.RV32IM.RVSail.Opcodes.and
 import PicoFV.RV32IM.RVSail.Opcodes.andi
 import PicoFV.RV32IM.RVSail.Opcodes.auipc
-import PicoFV.RV32IM.RVSail.Opcodes.jal
 import PicoFV.RV32IM.RVSail.Opcodes.jalr
 import PicoFV.RV32IM.RVSail.Opcodes.lui
 import PicoFV.RV32IM.RVSail.Opcodes.mul
@@ -375,14 +374,9 @@ theorem jal {imm : BitVec 21} {misa : RegisterType Register.misa}
     (aligned : (base + RegisterView.pc state + imm.signExtend 32) % 4 = 0)
     (jumps : Jumps state next (RegisterView.pc state + imm.signExtend 32)) :
     step (sync base frame state) = some (sync base frame next) := by
-  have effect := OpcodeSpec.RV32.execute_JAL_equiv
-    ((OpcodeSpec.RV32.spec_JAL_hypotheses (rd := .Regidx 0) (imm := imm)
-      (state := sync base frame state) (pc_val := base + RegisterView.pc state)).mpr
-        (syncReadPC state)) misaRead aligned
+  have effect := jalEffect _ imm _ (syncReadPC state) misaRead aligned
   refine jump fetched decoded ?_ jumps
-  rw [effect]
-  simp [OpcodeSpec.RV32.spec_JAL, operation_list_effect, operation_effect,
-    writeReg_state_success, write_xreg, regidx_to_fin, BitVec.add_assoc]
+  rw [effect, BitVec.add_assoc]
 
 -- Return through `source`, discarding the link value (`rd` is x0).
 theorem jalr {source : regidx} {imm : BitVec 12} {sourceValue target : BitVec 32}

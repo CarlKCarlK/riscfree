@@ -277,10 +277,13 @@ The pinned Sail configuration sets `hartSupports Ext_Zca` to `false`.
 target with bit 1 set, whatever `misa.C` says. The Rust caller is compiled for
 `riscv32imc`, so its return address can have bit 1 set. The ESP32-C3 implements
 the C extension and returns there correctly. In the linked demo, the five calls
-return to `0x42013afe`, `0x42013b10`, `0x42013b22`, `0x42013b34`, and
-`0x42013b76`. Three of them have bit 1 set. For those three, the final `ret` is
+return to `0x42013e60`, `0x42013e72`, `0x42013e84`, `0x42013e96`, and
+`0x42013ed8`. Two of them have bit 1 set. For those two, the final `ret` is
 the only instruction outside the formal guarantee. Covering it would need a Sail
 configuration with Zca, which in turn means verifying the compressed caller.
+The QEMU harness ([emulator.md](emulator.md)) avoids the question: it is
+compiled without compressed instructions and calls all four routines directly, so
+every return address is word-aligned.
 
 ## Remaining trusted base
 

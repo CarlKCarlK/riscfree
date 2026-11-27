@@ -1,4 +1,3 @@
-import Riscfree.Elf
 import RawVec.U32Remove.Instructions
 import RawVec.Remove
 
@@ -393,8 +392,5 @@ theorem rawVecU32RemoveSailCorrectInMachineMode (base returnAddress : Word) (ori
     indexArgument (Environment.ofMachine mode image) header buffer
 
 end Run
-
-def verifyElf (path : String) : IO Unit :=
-  Riscfree.verifyElf path "raw_vec_u32_remove" (instructions.map Prod.fst)
 
 end Riscfree.RawVec.U32Remove

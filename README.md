@@ -9,6 +9,9 @@ popcount(0xd3a57c1902efb6489d306a17c2f5804b) = 61
 popcount_swar(0xd3a57c1902efb6489d306a17c2f5804b) = 61
 ```
 
+Without the board, `just emulate` runs the same linked routines under QEMU
+(see [Emulator](#emulator)).
+
 Each firmware build calls one of two routines:
 
 | Routine | Source | Static instructions | Code size | Executed instructions |
@@ -33,7 +36,9 @@ routine it calls with the instruction words decoded by Sail: all 56 bytes of
 `popcount128`, all 112 bytes of `popcount128_swar`, all 120 bytes of
 `raw_vec_u32_insert`, all 28 bytes of its calling shim, all 132 bytes of
 `raw_vec_pair_insert`, all 92 bytes of `raw_vec_u32_remove`, and all 100 bytes
-of `raw_vec_pair_remove`. Lake uses the pinned
+of `raw_vec_pair_remove`. It makes the same comparison for the QEMU harness,
+and checks that the harness has no compressed instructions. Neither check
+needs the board or QEMU. Lake uses the pinned
 Pico FV and Sail dependencies in `lake-manifest.json` and Lean 4.28.0-rc1.
 
 `popcount128SailCorrect` and `popcount128SwarSailCorrect` cover every 128-bit
@@ -47,7 +52,7 @@ for SWAR. Both theorems depend on exactly the same axioms, all of which come
 from the Sail model and Lean's standard axioms. Neither proof uses `sorry`,
 `native_decide`, or `bv_decide`.
 
-`just prove` enforces this with three checks:
+`just prove` enforces this with three checks, then the linked-byte check:
 
 - `scripts/check_proof_sources.py` scans `proof/` (outside comments and
   strings) for shortcuts such as `sorry`, `native_decide`, `bv_decide`, new
@@ -60,12 +65,22 @@ from the Sail model and Lean's standard axioms. Neither proof uses `sorry`,
   functions). Each stub must be declared in `LeanRV32D.RiscvExtras` and have a
   nonempty type, so assuming it cannot introduce a contradiction. Sail's Lean
   backend declares these externs as axioms, and they reach every theorem about
-  `step` because `execute` covers every instruction.
+  `step` because `execute` covers every instruction. It reads each audited
+  module's own constant table. `--reference` additionally runs the original,
+  much slower scan of the whole environment and fails unless both select the
+  same declarations and reach the same axioms.
 - `scripts/AxiomPaths.lean` (`just axiom-paths`) prints a shortest dependency
   chain to each axiom of `rawVecU32InsertSailCorrect`. It fails unless the
   instructions the routine executes reach only Lean's three axioms and four
   Sail stubs. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) explains
   why none of the four affects this routine.
+- `scripts/LinkedBytes.lean` compares each routine's linked bytes in every
+  firmware and QEMU ELF with the instruction table its proof decodes. It also
+  checks the shim offset and the QEMU harness's lack of compressed
+  instructions. It runs in one Lean process and imports the proof modules, but
+  no proof imports it, so editing it rebuilds no proof. The same run requires
+  it to reject eight corrupted copies (one flipped bit in each of the six
+  routines and the shim, and a set RVC flag) that `scripts/corrupt_elf.py` writes.
 
 Sail decodes each linked word through a pre-simplified decoder.
 `proof/Riscfree/RV32/DecoderNormalForm.lean` runs `simp` once over Sail's
@@ -133,7 +148,7 @@ The files are:
   definition once and adds the result and its equation theorem through the
   kernel. The `StateRun` lemmas push a known `EStateM` state through binds and
   branches.
-- `proof/Riscfree/Elf.lean`: the linked-byte check.
+- `proof/Riscfree/Elf.lean`: the ELF reading behind `scripts/LinkedBytes.lean`.
 
 On a clean build, `lake build` spends about 15 minutes, once, simplifying the
 decoder. After that, `Popcount` elaborates in about 60 seconds and
@@ -143,6 +158,23 @@ went through `simp`. `just kernel-check` optionally replays every module under
 replay function (`scripts/KernelCheck.lean`), 16 modules in parallel by default
 (`just kernel-check 8` for fewer). It is not part of `just prove` and takes
 about 3 minutes.
+
+With everything built, `just prove` takes about 110 seconds, mostly the axiom
+checks. Editing an application theorem such as `proof/RawVec/PairInsert.lean`
+rebuilds in about 13 seconds. Editing a table of step lemmas such as
+`proof/RawVec/PairInsert/Instructions.lean`, or a module it imports, costs
+about 80 seconds.
+
+The decoder normal form is rebuilt only when
+`proof/Riscfree/RV32/DecoderNormalForm.lean`, a module it imports
+(`Riscfree.NormalForm`, `Riscfree.StateRun`, and `Riscfree.RV32.Effects`), the Lean toolchain, or
+the pinned Lake packages change. Application proofs and the rest of
+`proof/Riscfree/RV32/` do not invalidate it. To seed a new worktree, copy an
+existing worktree's `.lake` directory with `cp -a` before the first
+`lake build`. Lake checks each module's source and imports and rebuilds only
+what differs, so a stale copy costs time but never yields an unchecked
+module. Do not share `.lake` between worktrees with a symbolic link or hard
+links, because a build in one would then overwrite the other's files.
 
 Each theorem's `entry` premise and `Platform` structure specify the starting
 state and execution conditions. The code mapping supplies the linked halfwords
@@ -216,9 +248,9 @@ identical shim, which is not proved.
   address is word-aligned.
 
 The pinned Sail configuration does not support compressed instructions, so it
-faults on a jump to an address with bit 1 set. In the demo, three of the five
-calls return to such an address. For those calls, the final `ret` is trusted to
-the hardware. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) lists
+faults on a jump to an address with bit 1 set. In the demo, two of the five
+`RawVec<u32>` calls return to such an address. For those calls, the final
+`ret` is trusted to the hardware. [docs/rawvec-assurance.md](docs/rawvec-assurance.md) lists
 everything still trusted about the Rust caller.
 
 ### Bounded-vector removal
@@ -272,6 +304,32 @@ just prove         # Check all proofs and every verified routine's linked bytes
 just kernel-check  # Optional: replay every proof module through the kernel
 ```
 
+## Emulator
+
+Without an ESP32-C3, run the same linked routines under QEMU's generic
+RV32 `virt` board:
+
+```bash
+rustup target add riscv32im-unknown-none-elf
+sudo apt install qemu-system-misc   # Debian, Ubuntu, and WSL 2
+
+just emulate          # Bit-loop popcount
+just emulate swar     # SWAR popcount
+just emulate-raw-vec  # RawVec<u32> and RawVec<Pair> insertion and removal, every outcome
+```
+
+The harness in `emulator/` runs in machine mode, prints over the board's UART,
+and exits through QEMU's test device. It shares its test cases in
+`src/cases/` with the firmware. It is compiled entirely without compressed
+instructions, so its return addresses are word-aligned. It calls the four
+RawVec routines directly, without the shims, and every call meets the theorems' word-aligned return-address premise,
+including for the final `ret`. `just prove` checks that the routines' bytes in
+the QEMU harness are the ones Lean verified. The emulator is a convenience for
+reproducing the runs, not part of the proof.
+[docs/emulator.md](docs/emulator.md) covers installation, the design
+decisions, the relationship between the two builds' machine code, and the
+limitations.
+
 ## Credits
 
 The proofs build on:
@@ -293,7 +351,8 @@ The proofs build on:
 
 The SWAR routine and the RawVec insertion and removal routines were generated by the
 [Rust](https://www.rust-lang.org) compiler. The firmware uses [esp-hal](https://github.com/esp-rs/esp-hal) and
-[espflash](https://github.com/esp-rs/espflash).
+[espflash](https://github.com/esp-rs/espflash). The hardware-free harness runs
+under [QEMU](https://www.qemu.org)'s RISC-V `virt` board.
 
 The bounded-vector research uses
 [`heapless`](https://github.com/rust-embedded/heapless), by Jorge Aparicio,

@@ -1,4 +1,3 @@
-import Riscfree.Elf
 import RawVec.PairRemove.Instructions
 import RawVec.Remove
 
@@ -426,8 +425,5 @@ theorem rawVecPairRemoveSailCorrectInMachineMode (base returnAddress : Word) (or
     indexArgument (Environment.ofMachine mode image) header buffer
 
 end Run
-
-def verifyElf (path : String) : IO Unit :=
-  Riscfree.verifyElf path "raw_vec_pair_remove" (instructions.map Prod.fst)
 
 end Riscfree.RawVec.PairRemove
