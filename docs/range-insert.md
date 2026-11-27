@@ -26,8 +26,8 @@ extension length before that pass. The explicit loop implements the
 production `map_while(...).collect()` stopping and append order.
 
 The mathematical proofs come from range-set-blaze-vibe-validation, a
-pinned Lake dependency (branch `riscfree-dependency`, commit `d7837025`),
-so riscfree keeps no copy of them. That branch puts the library in the
+pinned Lake dependency (commit `d7837025` on its `main`),
+so riscfree keeps no copy of them. That revision puts the library in the
 `RangeSetBlazeValidation` namespace, because Sail also declares a
 top-level `IntRange`. Its sources build with both its own Lean 4.33.1 and
 riscfree's Lean 4.28.0-rc1, without separate copies. riscfree requires it
