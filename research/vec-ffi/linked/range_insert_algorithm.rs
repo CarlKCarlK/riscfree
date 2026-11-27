@@ -47,6 +47,7 @@ pub trait Map<T: Endpoint> {
 
 pub trait DeletionKeys<T>: IntoIterator<Item = T> {
     fn push(&mut self, key: T);
+    fn is_empty(&self) -> bool;
 }
 
 /// `deletion_keys` must initially be empty.
@@ -56,6 +57,8 @@ pub fn internal_add_baseline<T: Endpoint>(
     range: RangeInclusive<T>,
     deletion_keys: impl DeletionKeys<T>,
 ) {
+    // Stale keys would make the deletion pass remove unrelated ranges.
+    debug_assert!(deletion_keys.is_empty());
     let (start, end) = range.into_inner();
     if end < start {
         return;

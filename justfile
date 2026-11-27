@@ -100,6 +100,8 @@ axiom-paths:
         Riscfree.SortedMap.Insert.sortedMapInsertSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
     lake env lean --run scripts/AxiomPaths.lean RangeInsert.Empty \
         Riscfree.RangeInsert.Empty.Premises.run {{ empty-range-axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Contained \
+        Riscfree.RangeInsert.Nonempty.ContainedPremises.run {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \

@@ -25,6 +25,66 @@ private theorem frameRegisters (base returnPC : Word) (original : Machine)
   exact congrArg (fun regs => regs.get? key)
     (trackedRegs (tracked Snapshot) (RegisterView.value initial) original memory)
 
+-- The argument and return registers a returning path may leave changed.
+private structure Outputs where
+  pc : Word
+  a0 : Word
+  a1 : Word
+  a2 : Word
+  a3 : Word
+  a4 : Word
+  a5 : Word
+
+private instance : RegisterView Outputs where
+  tracked := [10, 11, 12, 13, 14, 15]
+  pc state := state.pc
+  value state index := match index.val with
+    | 10 => state.a0
+    | 11 => state.a1
+    | 12 => state.a2
+    | 13 => state.a3
+    | 14 => state.a4
+    | 15 => state.a5
+    | _ => 0
+  distinct := by decide
+  nonzero := by decide
+
+/-- After the common epilogue, every register except PC, nextPC, and
+a0–a5 has its value at entry. -/
+theorem restoreRegisters {base : Word} {original : Machine} {initial : Snapshot}
+    (entry : original = sync base original { initial with pc := 0 }) (memory : ByteMemory)
+    (state : Snapshot) (pc : Word) :
+    ∀ key ∉ [Register.PC, .nextPC, .x10, .x11, .x12, .x13, .x14, .x15],
+      (sync base { original with mem := memory } (restore initial state pc)).regs.get? key =
+        original.regs.get? key := by
+  intro key outside
+  simp only [List.mem_cons, List.not_mem_nil, or_false, not_or] at outside
+  obtain ⟨notPc, notNext, a0, a1, a2, a3, a4, a5⟩ := outside
+  let outputs : Outputs :=
+    ⟨pc, state.a0, state.a1, state.a2, state.a3, state.a4, state.a5⟩
+  -- Elaborating `syncInside` against this expected type times out, so the
+  -- equation is built first and then used.
+  have merged := syncInside (frame := { original with mem := memory }) base base
+    { initial with pc := pc } (restore initial state pc) outputs
+    (by decide) (fun index _ => by fin_cases index <;> rfl) rfl
+  rw [← merged, syncFrame outputs key notPc notNext (by
+    intro index member
+    change index ∈ ([10, 11, 12, 13, 14, 15] : List (Fin 32)) at member
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with rfl | rfl | rfl | rfl | rfl | rfl
+    exacts [Ne.symm a0, Ne.symm a1, Ne.symm a2, Ne.symm a3, Ne.symm a4, Ne.symm a5])]
+  exact (frameRegisters base pc original memory initial key notPc notNext).trans
+    (congrArg (fun state => state.regs.get? key) entry.symm)
+
+theorem returnPc {base returnAddress : Word} (frame : Machine) (state : Snapshot)
+    (atReturn : state.pc = returnAddress - base) :
+    (sync base frame state).regs.get? Register.PC = some returnAddress := by
+  have target : base + (returnAddress - base) = returnAddress := by
+    rw [BitVec.add_comm, BitVec.sub_add_cancel]
+  have read := syncReadPC (base := base) (frame := frame) state
+  rw [viewPc, atReturn, target] at read
+  exact readReg_succ.mp read
+
 /-- An empty input returns in 19 instructions. Every register except PC and
 nextPC is preserved, including the stack pointer. Only the 48-byte stack
 frame can be modified. -/

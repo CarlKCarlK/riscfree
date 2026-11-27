@@ -130,6 +130,10 @@ impl DeletionKeys<u32> for BoundedKeys<'_> {
         let status = unsafe { raw_vec_u32_insert(&mut self.raw, index, key) };
         require_success(status);
     }
+
+    fn is_empty(&self) -> bool {
+        self.raw.length == 0
+    }
 }
 
 impl<'a> IntoIterator for BoundedKeys<'a> {

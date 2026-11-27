@@ -96,6 +96,35 @@ except the program counters, and leave memory unchanged outside the
 48-byte frame. The concrete witness in `Empty/Nonvacuity.lean` satisfies
 the mapping and stack premises and applies the theorem.
 
+For a nonempty input whose end is already covered by its predecessor,
+`RangeInsert.Nonempty.ContainedPremises.run` proves that exactly
+`44 + c` instructions reach the return address, where `c` is the
+verified upper-bound search's count (`7 + 5r` when the scan stops at
+rank `r`, or `6 + 5n` when it passes all `n` entries). The run preserves
+every register except PC, nextPC, and a0–a5, including the stack pointer
+and the callee-saved registers. It leaves every byte outside the 48-byte
+frame unchanged, so the map and the cached length are untouched. The
+shared prefix (`Nonempty/Predecessor.lean`) covers the prologue, the
+nonempty branch, the argument moves, and the call to
+`sorted_map_upper_bound`. It composes `sortedMapSearchSailRun` at the
+linked offset `-0x208` rather than re-proving the search. The path
+premises are a positive rank, a nonnull data pointer, and a predecessor
+end at or after the input end. The strict-gap test is proved false from
+these premises, including when the predecessor ends at `u32::MAX`.
+
+`Nonempty/Correspondence.lean` connects this path to the abstract model.
+When the live entries, read in order, are a canonical set's ranges
+(`Represents`), the upper-bound rank selects the same predecessor as the
+model's `takeWhile`/`getLast?` split. `containedModel` then shows that
+`internalAddProduction` returns the set and the cached count unchanged,
+and `containedCorrect` shows that this is the union with the input and
+the cardinality. `Contained/Nonvacuity.lean` builds concrete machines for
+a strictly contained input (56 instructions), an input that starts at its
+predecessor's start (61), and a one-entry map whose range ends at
+`u32::MAX` (55). The 55-instruction count matches the QEMU measurement
+for the shared one-entry cases. The kernel applies the run theorem to all
+three, and `Represents` and `containedModel` hold for the same maps.
+
 ## Proof size and measurements
 
 The abstract proof reuses about 2,090 lines of upstream Lean, with one
@@ -113,7 +142,10 @@ per mathematical module. The table builds took 233 seconds for the entry
 and 269 seconds for the deletion helper. Peak RSS for that build was about
 7.9 GiB with the existing decoder cached. The empty-path execution, frame,
 and witness modules each elaborated in about 4–7 seconds. Peak RSS for
-the build was about 6.9 GiB.
+the build was about 6.9 GiB. The contained path adds about 1,000 lines in
+five modules (steps, shared prefix, run, model correspondence, and
+witnesses). Each elaborated in about 4–8 seconds, reusing the cached entry
+decode table, the search theorem, and the empty path's frame lemmas.
 
 ## Checks and remaining scope
 
@@ -129,9 +161,9 @@ the build was about 6.9 GiB.
   shim. The negative fixtures modify an instruction byte, a linked call
   immediate, and a shim byte.
 
-The main remaining proof obligation is to compose the successful
-nonempty machine paths with the verified collection theorems. This
-starts in `delete_extra` with a loop invariant relating the concrete
+The contained path is proved. The main remaining proof obligation is to
+compose the fresh-insertion and predecessor-extension paths with the
+verified collection theorems, reusing the shared prefix. This starts in `delete_extra` with a loop invariant relating the concrete
 cursor, accumulated endpoint, two-word cache, and initialized scratch
 prefix. That invariant can transfer to a deletion loop that reads the
 scratch keys in order and composes the sorted-map removal theorem. The
@@ -140,4 +172,4 @@ remain strictly increasing for each collection call. The outer proof then
 composes upper-bound and map insertion with this helper and connects the
 returned entries and count to the abstract union theorem.
 Exact dynamic instruction formulas and composed memory, register, and
-stack guarantees for those nonempty paths remain open.
+stack guarantees for those two paths remain open.

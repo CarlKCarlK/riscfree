@@ -1507,6 +1507,28 @@ theorem internalAddProduction_correct (s : RangeSetBlaze) (cachedLength : Nat)
   exact ⟨internalAddCLen_toSet s cachedLength r,
     internalAddCLen_cachedLength s cachedLength r accurate⟩
 
+/-- The covered branch: when the last range starting at or before a
+nonempty input's start already reaches its end, the production model
+returns the set and the cached count unchanged. The machine's contained
+path is connected to the model through this lemma. -/
+theorem internalAddProduction_covered (s : RangeSetBlaze) (cachedLength : Nat)
+    (r : IntRange) (nonempty : r.lo ≤ r.hi) (predecessor : NR)
+    (last : (s.ranges.takeWhile (fun nr => decide (nr.val.lo ≤ r.lo))).getLast? = some predecessor)
+    (covers : r.hi ≤ predecessor.val.hi) :
+    internalAddProduction s cachedLength r = ⟨s, cachedLength⟩ := by
+  have raw : internalAddProductionRaw s.ranges cachedLength r = ⟨s.ranges, cachedLength⟩ := by
+    unfold internalAddProductionRaw
+    rw [dif_neg (not_lt.mpr nonempty)]
+    simp only [List.span_eq_takeWhile_dropWhile, last]
+    rw [if_neg (by omega), dif_neg (by omega)]
+  obtain ⟨ranges, canonical⟩ := s
+  unfold internalAddProduction
+  dsimp only at raw ⊢
+  congr 1
+  · congr 1
+    rw [raw]
+  · rw [raw]
+
 /-- A cached count with a nonnegative base and the pending ranges' total can
 pay for each accepted successor in traversal order. -/
 private theorem productionScan_canSubtract (originalEnd : Int) (current : NR)

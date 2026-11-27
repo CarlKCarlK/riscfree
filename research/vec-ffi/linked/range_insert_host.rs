@@ -37,6 +37,10 @@ impl<T> DeletionKeys<T> for Vec<T> {
     fn push(&mut self, key: T) {
         self.push(key);
     }
+
+    fn is_empty(&self) -> bool {
+        Vec::is_empty(self)
+    }
 }
 
 #[cfg(test)]
