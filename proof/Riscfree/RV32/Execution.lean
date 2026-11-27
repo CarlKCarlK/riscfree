@@ -76,6 +76,26 @@ theorem runAdd (first second : Nat) (state : Machine) :
     simp only [Nat.succ_add, run, ih]
     cases step state <;> rfl
 
+-- A countdown loop. Each iteration runs `body` steps and takes the invariant
+-- from counter `low + remaining + 1` to `low + remaining`, so `remaining`
+-- iterations take it from `low + remaining` down to `low`.
+theorem runCountdown {σ : Type} (machine : σ → Machine) (Invariant : Nat → σ → Prop)
+    (low body : Nat)
+    (iteration : ∀ remaining state, Invariant (low + remaining + 1) state →
+      ∃ next, run body (machine state) = some (machine next) ∧ Invariant (low + remaining) next) :
+    ∀ remaining state, Invariant (low + remaining) state →
+      ∃ final, run (body * remaining) (machine state) = some (machine final) ∧
+        Invariant low final := by
+  intro remaining
+  induction remaining with
+  | zero => exact fun state holds => ⟨state, rfl, holds⟩
+  | succ remaining previous =>
+    intro state holds
+    obtain ⟨next, stepped, nextHolds⟩ := iteration remaining state holds
+    obtain ⟨final, rest, done⟩ := previous next nextHolds
+    refine ⟨final, ?_, done⟩
+    rw [Nat.mul_succ, Nat.add_comm, runAdd, stepped, Option.bind_some, rest]
+
 theorem stepOfEffects (state executed : Machine) (word : BitVec 32)
     (operation : instruction) (next : BitVec 32)
     (fetched : fetch () state = .ok (.F_Base word) state)

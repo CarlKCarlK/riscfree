@@ -1,5 +1,5 @@
 import RawVec.Shim
-import Riscfree.RV32.Model
+import RawVec.Model
 
 /-!
 # The RawVec premises can all hold
@@ -13,11 +13,9 @@ and applies the theorem to them.
 `Hypotheses.run` applies the theorem to them, so `Hypotheses` cannot contain
 fewer premises than the theorem.
 
-The model machine is in machine mode with `MPRV` clear, landing pads and the
-host interface disabled, and one PMA region covering the address space. Its
-memory holds the 30 linked instruction words at `0x1000`, the vector header at
-`0x3000`, and the live elements at `0x4000`. The return address is `0x2000`.
-`modelHypotheses` proves every premise for any index, value, capacity, and
+The model machine (`RawVec/Model.lean`) holds the 30 linked instruction words
+at `0x1000`, the vector header at `0x3000`, and the live elements at `0x4000`.
+The return address is `0x2000`. `modelHypotheses` proves every premise for any index, value, capacity, and
 contents whenever the length is at most 1000.
 -/
 
@@ -46,42 +44,27 @@ theorem Hypotheses.run {base returnAddress : Word} {original : Machine} {call : 
     premises.environment premises.header premises.buffer
   exact ⟨final, ran, pc, status⟩
 
-/-! ## The model machine -/
+/-! ## The model machine
 
-def codeBase : Word := 0x1000
-def returnTo : Word := 0x2000
+`RawVec/Model.lean` builds the machine. This routine's image places the shim at
+word indices `0x3d1`–`0x3d7` and the routine at `0x400`–`0x41d`.
+-/
+
+open Model (codeBase returnTo Modeled syncModeled frameState tableImage tableWordAt
+  tableWordOutside readable writable)
+
 -- The shim's `call` reaches `shimModelBase + routineOffset`, which is `codeBase`.
-def shimModelBase : Word := 0x2a0
+def shimModelBase : Word := 0xf44
 def stackTop : Word := 0x5000
 
 def modelCall (index value length capacity : Word) (old : Nat → Word) : Call :=
-  { header := 0x3000, index, value, length, capacity, data := 0x4000, old }
+  Model.modelCall index value length capacity old
 
--- RV32 (`MXL = 1`) with the I and M extensions.
-def misaValue : BitVec 32 := 0x40001100
+def image : Model.Image where
+  word index := (Model.tableWord 0x3d1 shimInstructions index).or (Model.tableWord 0x400 instructions index)
+  keys := List.range' 0xf44 28 ++ List.range' 0x1000 120
 
-def registers : Std.ExtDHashMap Register RegisterType :=
-  ((((((((∅ : Std.ExtDHashMap Register RegisterType).insert Register.x1 returnTo).insert
-    Register.cur_privilege Privilege.Machine).insert Register.misa misaValue).insert
-    Register.mseccfg (0 : BitVec 64)).insert Register.mstatus (0 : BitVec 64)).insert
-    Register.htif_tohost_base none).insert Register.pma_regions [wholeSpaceRegion])
-
--- Word indices: the shim at `0xa8`–`0xae`, the routine at `0x400`–`0x41d`, the
--- header at `0xc00`–`0xc02`, and the elements from `0x1000`.
-def contents (call : Call) (index : Nat) : Word :=
-  if 0xa8 ≤ index ∧ index < 0xa8 + 7 then ((shimInstructions[index - 0xa8]?).map Prod.fst).getD 0
-  else if 0x400 ≤ index ∧ index < 0x400 + 30 then ((instructions[index - 0x400]?).map Prod.fst).getD 0
-  else if index = 0xc00 then call.data
-  else if index = 0xc01 then call.length
-  else if index = 0xc02 then call.capacity
-  else call.old (index - 0x1000)
-
-def keys (call : Call) : List Nat :=
-  List.range' 0x2a0 28 ++ List.range' 0x1000 120 ++ List.range' 0x3000 12 ++
-    List.range' 0x4000 (4 * call.length.toNat)
-
-def frame (call : Call) : Machine :=
-  { (default : Machine) with regs := registers, mem := wordMemory (keys call) (contents call) }
+def frame (call : Call) : Machine := Model.frame image call
 
 def initial (call : Call) : Snapshot := { a0 := call.header, a1 := call.index, a2 := call.value }
 
@@ -93,169 +76,47 @@ section Model
 
 variable {index value length capacity : Word} {old : Nat → Word}
 
--- A machine with the model's memory and PMA region.
-private structure Modeled (call : Call) (state : Machine) : Prop where
-  mem : state.mem = wordMemory (keys call) (contents call)
-  regions : Sail.readReg Register.pma_regions state = .ok [wholeSpaceRegion] state
+private theorem shimLength : shimInstructions.length = 7 := rfl
 
-private theorem frameRead {key : Register} {value : RegisterType key} (call : Call)
-    (stored : registers.get? key = some value) :
-    Sail.readReg key (frame call) = .ok value (frame call) :=
-  readReg_succ.mpr stored
+private theorem routineLength : instructions.length = 30 := rfl
 
-private theorem frameState (call : Call) : MachineState (frame call) := by
-  have configRead : Sail.readReg Register.mseccfg (frame call) = .ok 0 (frame call) :=
-    frameRead call (by simp [registers, Std.ExtDHashMap.get?_insert])
-  exact {
-    privilege := frameRead call (by simp [registers, Std.ExtDHashMap.get?_insert])
-    misa := ⟨misaValue, frameRead call (by simp [registers, Std.ExtDHashMap.get?_insert])⟩
-    mseccfg := ⟨0, configRead⟩
-    landingPad := by
-      simp [get_xLPE, configRead]
-      decide
-    status := ⟨0, frameRead call (by simp [registers, Std.ExtDHashMap.get?_insert]), by decide⟩
-    htif := frameRead call (by simp [registers, Std.ExtDHashMap.get?_insert]) }
-
--- Every synchronized model machine is modeled.
-private theorem syncModeled {S : Type} [RegisterView S] (call : Call) (base : Word) (state : S) :
-    Modeled call (sync base (frame call) state) :=
-  ⟨by simp only [syncMem, frame],
-    Platform.systemRead state (by decide) (by decide) (by decide) (frameRead call (by simp [registers]))⟩
+private theorem dataFree : ∀ index, 0xc00 ≤ index → image.word index = none := by
+  intro index above
+  change (Model.tableWord 0x3d1 shimInstructions index).or (Model.tableWord 0x400 instructions index) = none
+  rw [tableWordOutside 0x3d1 shimInstructions (Or.inr (by have := shimLength; omega)),
+    tableWordOutside 0x400 instructions (Or.inr (by have := routineLength; omega)), Option.none_or]
 
 private theorem modelMode (call : Call) : MachineMode (machine call) returnTo :=
-  { (frameState call).atSync codeBase _ with
-    returnLow := by decide
-    returnNext := by decide
-    ra := syncReadFrame _ _ (by decide) (by decide) (by decide)
-      (frameRead call (by simp [registers, Std.ExtDHashMap.get?_insert])) }
+  Model.modelMode call codeBase _ (by decide)
 
-private theorem codeAddress (base : Word) (start count index : Nat) (bound : index < count)
-    (baseNat : base.toNat = start) (fits : start + 4 * count ≤ 2 ^ 32) :
-    (base + BitVec.ofNat 32 (index * 4)).toNat = start + index * 4 := by
-  rw [BitVec.toNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : index * 4 < 2 ^ 32), baseNat]
-  exact Nat.mod_eq_of_lt (by omega)
-
-private theorem tableImage {state : Machine} {call : Call} (modeled : Modeled call state)
-    (table : List (Word × instruction)) (base : Word) (start : Nat) (baseNat : base.toNat = start)
-    (aligned : start % 4 = 0) (fits : start + 4 * table.length ≤ 2 ^ 32)
-    (present : ∀ index < table.length, ∀ byte < 4, start + index * 4 + byte ∈ keys call)
-    (selected : ∀ (index : Nat) (bound : index < table.length),
-      contents call (start / 4 + index) = table[index].1) :
-    CodeImage table base state := by
-  refine ⟨by omega, by omega, ⟨[wholeSpaceRegion], modeled.regions, fun index bound => ?_⟩, ?_⟩
-  · have address := codeAddress base start table.length index bound baseNat fits
-    refine ⟨wholeSpaceExecutable _ (by omega), wholeSpaceExecutable _ ?_⟩
-    rw [BitVec.toNat_add, address]
-    simp
-    omega
-  · intro index bound
-    rw [modeled.mem, baseNat]
-    have word := wordMemoryWord (keys call) (contents call) (start + index * 4) (by omega)
-      (present index bound)
-    rw [show (start + index * 4) / 4 = start / 4 + index by omega, selected index bound] at word
-    exact word
-
-private theorem routineImage {state : Machine} {call : Call} (modeled : Modeled call state) :
+private theorem routineImage {state : Machine} {call : Call} (modeled : Modeled image call state) :
     CodeImage instructions codeBase state := by
   refine tableImage modeled instructions codeBase 0x1000 rfl (by decide) (by decide)
-    (fun index bound byte small => by change index < 30 at bound; simp [keys]; omega)
+    (fun index bound byte small => by change index < 30 at bound; simp [image]; omega)
     (fun index bound => ?_)
-  change index < 30 at bound
-  have notShim : ¬ (0xa8 ≤ 0x1000 / 4 + index ∧ 0x1000 / 4 + index < 0xa8 + 7) := by omega
-  have inCode : 0x400 ≤ 0x1000 / 4 + index ∧ 0x1000 / 4 + index < 0x400 + 30 := by omega
-  have item : instructions[0x1000 / 4 + index - 0x400]? = some instructions[index] := by
-    rw [show 0x1000 / 4 + index - 0x400 = index by omega]
-    exact List.getElem?_eq_getElem _
-  simp only [contents, notShim, inCode, item, if_false, if_true, and_self]
-  rfl
+  change (Model.tableWord 0x3d1 shimInstructions (0x400 + index)).or
+    (Model.tableWord 0x400 instructions (0x400 + index)) = _
+  rw [tableWordOutside 0x3d1 shimInstructions (Or.inr (by have := shimLength; omega)), Option.none_or,
+    tableWordAt 0x400 instructions bound]
 
-private theorem shimCodeImage {state : Machine} {call : Call} (modeled : Modeled call state) :
+private theorem shimCodeImage {state : Machine} {call : Call} (modeled : Modeled image call state) :
     CodeImage shimInstructions shimModelBase state := by
-  refine tableImage modeled shimInstructions shimModelBase 0x2a0 rfl (by decide) (by decide)
-    (fun index bound byte small => by change index < 7 at bound; simp [keys]; omega)
+  refine tableImage modeled shimInstructions shimModelBase 0xf44 rfl (by decide) (by decide)
+    (fun index bound byte small => by change index < 7 at bound; simp [image]; omega)
     (fun index bound => ?_)
-  change index < 7 at bound
-  have inShim : 0xa8 ≤ 0x2a0 / 4 + index ∧ 0x2a0 / 4 + index < 0xa8 + 7 := by omega
-  have item : shimInstructions[0x2a0 / 4 + index - 0xa8]? = some shimInstructions[index] := by
-    rw [show 0x2a0 / 4 + index - 0xa8 = index by omega]
-    exact List.getElem?_eq_getElem _
-  simp only [contents, inShim, item, if_true, and_self]
-  rfl
-
-private theorem readable {state : Machine} {call : Call} (modeled : Modeled call state)
-    {address : Word} (aligned : address.toNat % 4 = 0) (fits : address.toNat + 4 ≤ 2 ^ 32) :
-    Readable state address :=
-  ⟨aligned, _, _, modeled.regions, wholeSpaceMatches address 4 (by decide) fits, rfl⟩
-
-private theorem writable {state : Machine} {call : Call} (modeled : Modeled call state)
-    {address : Word} (aligned : address.toNat % 4 = 0) (fits : address.toNat + 4 ≤ 2 ^ 32) :
-    Writable state address :=
-  ⟨aligned, _, _, modeled.regions, wholeSpaceMatches address 4 (by decide) fits, rfl⟩
-
-private theorem headerWord {state : Machine} {call : Call} (modeled : Modeled call state)
-    (offset : Nat) (small : offset < 3) (header : call.header = 0x3000) :
-    WordAt state.mem (call.header.toNat + 4 * offset) (contents call (0xc00 + offset)) := by
-  rw [modeled.mem, header]
-  have word := wordMemoryWord (keys call) (contents call) (0x3000 + 4 * offset) (by omega)
-    (fun byte bound => by simp [keys]; omega)
-  have quotient : (0x3000 + 4 * offset) / 4 = 0xc00 + offset := by omega
-  rw [quotient] at word
-  exact word
-
-private theorem slotNat (call : Call) (data : call.data = 0x4000) (slot : Nat)
-    (small : slot ≤ 1001) : (call.wordSlot slot).toNat = 0x4000 + 4 * slot := by
-  simp only [Call.wordSlot, Call.slot, data, BitVec.toNat_ofNat]
-  exact Nat.mod_eq_of_lt (by change 0x4000 + 4 * slot < 2 ^ 32; omega)
+  change (Model.tableWord 0x3d1 shimInstructions (0x3d1 + index)).or _ = _
+  rw [tableWordAt 0x3d1 shimInstructions bound, Option.some_or]
 
 private theorem modelHeader {state : Machine}
-    (modeled : Modeled (modelCall index value length capacity old) state) :
+    (modeled : Modeled image (modelCall index value length capacity old) state) :
     Header state (modelCall index value length capacity old) :=
-  ⟨by simp [modelCall], readable modeled (by simp [modelCall]) (by simp [modelCall]),
-    readable modeled (by simp [modelCall]) (by simp [modelCall]),
-    by simpa using headerWord modeled 1 (by decide) rfl,
-    by simpa using headerWord modeled 2 (by decide) rfl⟩
+  Model.modelHeader modeled dataFree
 
 private theorem modelBuffer {state : Machine}
-    (modeled : Modeled (modelCall index value length capacity old) state)
+    (modeled : Modeled image (modelCall index value length capacity old) state)
     (small : length.toNat ≤ 1000) (valid : (modelCall index value length capacity old).valid) :
-    Buffer codeBase state (modelCall index value length capacity old) := by
-  let call := modelCall index value length capacity old
-  have data : call.data = 0x4000 := rfl
-  have spare := valid.2
-  refine ⟨?_, readable modeled (by simp [modelCall]) (by simp [modelCall]),
-    by simpa using headerWord modeled 0 (by decide) rfl,
-    writable modeled (by simp [modelCall]) (by simp [modelCall]),
-    by simp [Call.outsideCode, modelCall, codeBase], fun slot bound => ?_, fun slot _ bound => ?_,
-    fun slot _ bound => ?_, fun slot bound => ?_, fun slot _ bound => ?_⟩
-  · change 0x4000 + 4 * (length.toNat + 1) ≤ 2 ^ 32
-    omega
-  · change slot < length.toNat at bound
-    rw [modeled.mem]
-    have word := wordMemoryWord (keys call) (contents call) (0x4000 + 4 * slot) (by omega)
-      (fun byte small => by simp [keys, call, modelCall]; omega)
-    have quotient : (0x4000 + 4 * slot) / 4 = 0x1000 + slot := by omega
-    have selected : contents call (0x1000 + slot) = old slot := by
-      have notShim : ¬ (0xa8 ≤ 0x1000 + slot ∧ 0x1000 + slot < 0xa8 + 7) := by omega
-      have notCode : ¬ (0x400 ≤ 0x1000 + slot ∧ 0x1000 + slot < 0x400 + 30) := by omega
-      have notData : 0x1000 + slot ≠ 0xc00 := by omega
-      have notLength : 0x1000 + slot ≠ 0xc01 := by omega
-      have notCapacity : 0x1000 + slot ≠ 0xc02 := by omega
-      simp [contents, notShim, notCode, notData, notLength, notCapacity, call, modelCall]
-    rw [quotient, selected] at word
-    exact word
-  · change slot < length.toNat at bound
-    exact readable modeled (by rw [slotNat call data slot (by omega)]; omega)
-      (by rw [slotNat call data slot (by omega)]; omega)
-  · change slot ≤ length.toNat at bound
-    exact writable modeled (by rw [slotNat call data slot (by omega)]; omega)
-      (by rw [slotNat call data slot (by omega)]; omega)
-  · change slot ≤ length.toNat at bound
-    right
-    change 0x3000 + 12 ≤ 0x4000 + 4 * slot
-    omega
-  · right
-    change 0x1000 + 120 ≤ 0x4000 + 4 * slot
-    omega
+    Buffer codeBase state (modelCall index value length capacity old) :=
+  Model.modelBuffer modeled dataFree (by decide) (by rw [wordBytes]; omega) valid
 
 theorem modelHypotheses (small : length.toNat ≤ 1000) :
     Hypotheses codeBase returnTo (machine (modelCall index value length capacity old))
@@ -402,7 +263,7 @@ theorem machineFullRuns : ∃ final, Riscfree.RV32.run 7 (machine fullCall) = so
 `ShimReturnHypotheses` collects the premises of
 `callRawVecU32InsertSailAtReturn`. `ShimHypotheses` adds the word-aligned
 return address that `callRawVecU32InsertSailCorrect` also needs. The model
-places the shim at `0x2a0`, so its `call` reaches the routine at `0x1000`. The
+places the shim at `0xf44`, so its `call` reaches the routine at `0x1000`. The
 caller's stack pointer is `0x5000`, so the shim saves `ra` at `0x4ffc`. The
 caller returns to `0x2000`, or to `0x2002` in the halfword-aligned case.
 -/
@@ -473,7 +334,7 @@ theorem shimModelReturnHypotheses (returnAddress : Word) (small : length.toNat �
       (modelCall index value length capacity old)
       (shimInitial returnAddress (modelCall index value length capacity old)) := by
   let call := modelCall index value length capacity old
-  have modeled := syncModeled call shimModelBase { shimInitial returnAddress call with pc := 0 }
+  have modeled := syncModeled (image := image) call shimModelBase { shimInitial returnAddress call with pc := 0 }
   have slotAt : (saveSlot (shimInitial returnAddress call).sp).toNat = 0x4ffc := saveSlotNat
   refine ⟨(syncSync _ _).symm, rfl, rfl, rfl, ⟨(frameState call).atSync _ _, shimCodeImage modeled,
       routineAtCodeBase ▸ routineImage modeled⟩, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩,
@@ -492,15 +353,15 @@ theorem shimModelReturnHypotheses (returnAddress : Word) (small : length.toNat �
     omega
   · rw [slotAt]
     right
-    change 0x2a0 + 28 ≤ 0x4ffc
+    change 0xf44 + 28 ≤ 0x4ffc
     decide
   · rw [slotAt, routineAtCodeBase]
     right
     change 0x1000 + 120 ≤ 0x4ffc
     decide
   · intro _
-    refine ⟨Or.inr (by change 0x2a0 + 28 ≤ 0x3000 + 4; decide), fun slot _ _ => Or.inr ?_⟩
-    change 0x2a0 + 28 ≤ 0x4000 + 4 * slot
+    refine ⟨Or.inr (by change 0xf44 + 28 ≤ 0x3000 + 4; decide), fun slot _ _ => Or.inr ?_⟩
+    change 0xf44 + 28 ≤ 0x4000 + 4 * slot
     omega
 
 theorem shimModelHypotheses (small : length.toNat ≤ 1000) :

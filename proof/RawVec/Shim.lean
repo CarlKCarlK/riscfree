@@ -10,8 +10,8 @@ word-aligned return address, restores `ra`, and returns:
 ```text
 addi sp, sp, -16
 sw   ra, 12(sp)
-auipc ra, 0x1          ; `call raw_vec_u32_insert`
-jalr  ra, -0x2a8(ra)   ; lands 0xd60 bytes after the shim
+auipc ra, 0x0          ; `call raw_vec_u32_insert`
+jalr  ra, 0xb4(ra)     ; lands 0xbc bytes after the shim
 lw   ra, 12(sp)
 addi sp, sp, 16
 ret
@@ -38,15 +38,15 @@ open Riscfree.RV32
 def shimInstructions : List (Word × instruction) :=
   [ (0xff010113, .ITYPE (0xff0, reg 2, reg 2, .ADDI))
   , (0x00112623, .STORE (12, reg 1, reg 2, 4))
-  , (0x00001097, .UTYPE (0x00001, reg 1, .AUIPC))
-  , (0xd58080e7, .JALR (0xd58, reg 1, reg 1))
+  , (0x00000097, .UTYPE (0x00000, reg 1, .AUIPC))
+  , (0x0b4080e7, .JALR (0x0b4, reg 1, reg 1))
   , (0x00c12083, .LOAD (12, reg 2, reg 1, false, 4))
   , (0x01010113, .ITYPE (16, reg 2, reg 2, .ADDI))
   , (0x00008067, .JALR (0, reg 1, reg 0))
   ]
 
--- `auipc ra, 0x1` at offset 8 and `jalr ra, -0x2a8(ra)` reach this offset.
-def routineOffset : Word := 0xd60
+-- `auipc ra, 0x0` at offset 8 and `jalr ra, 0xb4(ra)` reach this offset.
+def routineOffset : Word := 0xbc
 
 set_option maxRecDepth 32768 in
 set_option maxHeartbeats 4000000 in
@@ -150,17 +150,17 @@ theorem shimStep2 (machine : MachineState original)
     (state : ShimSnapshot) (atPC : state.pc = 8#32) :
     step (sync shimBase { original with mem := memory } state) =
       some (sync shimBase { original with mem := memory }
-        { state with pc := 12#32, ra := shimBase + 0x1008#32 }) := by
+        { state with pc := 12#32, ra := shimBase + 8#32 }) := by
   obtain ⟨fetched, decoded⟩ := shimFetchDecode machine image state ⟨2, by decide⟩ atPC
   refine Step.auipc fetched decoded (by decide) ?_
-  rw [shimViewPc, atPC, offsetAdd shimBase _ _ 0x1008#32 (by decide)]
+  rw [shimViewPc, atPC, offsetAdd shimBase _ _ 8#32 (by decide)]
   advance [shimViewPc, atPC]
 
--- `jalr ra, -0x2a8(ra)` enters the routine and links the shim's next word.
+-- `jalr ra, 0xb4(ra)` enters the routine and links the shim's next word.
 theorem shimStep3 (machine : MachineState original)
     (image : CodeImage shimInstructions shimBase { original with mem := memory })
     (aligned : shimBase.toNat % 4 = 0)
-    (state : ShimSnapshot) (atPC : state.pc = 12#32) (link : state.ra = shimBase + 0x1008#32) :
+    (state : ShimSnapshot) (atPC : state.pc = 12#32) (link : state.ra = shimBase + 8#32) :
     step (sync shimBase { original with mem := memory } state) =
       some (sync shimBase { original with mem := memory }
         { state with pc := routineOffset, ra := shimBase + 16#32 }) := by
@@ -168,19 +168,19 @@ theorem shimStep3 (machine : MachineState original)
   have synced := (machine.withMemory memory).atSync shimBase state
   obtain ⟨misa, misaRead⟩ := synced.misa
   obtain ⟨config, configRead⟩ := synced.mseccfg
-  have target : state.ra + (0xd58#12).signExtend 32 = shimBase + routineOffset := by
+  have target : state.ra + (0x0b4#12).signExtend 32 = shimBase + routineOffset := by
     rw [link, offsetAdd shimBase _ _ routineOffset (by decide)]
   have targetAligned : (shimBase + routineOffset).toNat % 4 = 0 := by
     rw [BitVec.toNat_add]
-    change (shimBase.toNat + 0xd60) % 2 ^ 32 % 4 = 0
+    change (shimBase.toNat + 0xbc) % 2 ^ 32 % 4 = 0
     omega
   obtain ⟨bit0, bit1⟩ := alignedBits _ targetAligned
   refine Step.jalrLink fetched decoded (syncRead state (index := 1) (by decide)) misaRead
     synced.privilege configRead ?_ ?_ (by decide) rfl ?_
-  · change BitVec.ofBool (state.ra + (0xd58#12).signExtend 32)[1] = 0#1
+  · change BitVec.ofBool (state.ra + (0x0b4#12).signExtend 32)[1] = 0#1
     rw [target, bit1]
     rfl
-  · change shimBase + routineOffset = 0xfffffffe#32 &&& (state.ra + (0xd58#12).signExtend 32)
+  · change shimBase + routineOffset = 0xfffffffe#32 &&& (state.ra + (0x0b4#12).signExtend 32)
     rw [target, maskEven _ bit0]
   · intro other _
     fin_cases other <;> first
@@ -326,9 +326,9 @@ private theorem outsideSlots (call : Call) (low high byte : Nat)
     byte < call.slot low ∨ call.slot (high + 1) ≤ byte := by
   by_contra inside
   have within : call.slot low ≤ byte ∧ byte < call.slot (high + 1) := by omega
-  unfold Call.slot at within
+  simp only [Insert.Call.slot, wordBytes] at within
   have hit := avoid ((byte - call.data.toNat) / 4) (by omega) (by omega)
-  unfold Call.slot at hit
+  simp only [Insert.Call.slot, wordBytes] at hit
   omega
 
 private theorem shimRun (shimBase : Word) (original : Machine) (call : Call)
@@ -362,12 +362,12 @@ private theorem shimRun (shimBase : Word) (original : Machine) (call : Call)
   have apartShim := layout.slotApartShim
   have apartRoutine := layout.slotApartRoutine
   unfold Call.outsideShim at apartShim
-  unfold Call.outsideCode at apartRoutine
+  unfold Call.outsideCode Insert.outsideCode at apartRoutine
   -- The four instructions before the call.
   let start : ShimSnapshot := { initial with pc := 0 }
   let lowered : ShimSnapshot := { initial with pc := 4#32, sp := initial.sp + 0xfffffff0#32 }
   let saved : ShimSnapshot := { lowered with pc := 8#32 }
-  let linked : ShimSnapshot := { saved with pc := 12#32, ra := shimBase + 0x1008#32 }
+  let linked : ShimSnapshot := { saved with pc := 12#32, ra := shimBase + 8#32 }
   let called : ShimSnapshot := { saved with pc := routineOffset, ra := shimBase + 16#32 }
   have firstImage : CodeImage shimInstructions shimBase { original with mem := original.mem } :=
     shimImage environment.shimCode (fun _ _ _ => rfl)
@@ -412,7 +412,7 @@ private theorem shimRun (shimBase : Word) (original : Machine) (call : Call)
     rw [enteredMem]
     apply word.storeOther
     have apart := layout.slotApartHeader
-    unfold Call.outsideHeader at apart
+    simp only [Insert.Call.outsideHeader, wordBytes] at apart
     omega
   have routineHeader : Header entered call :=
     ⟨header.fits, mappedTransfer header.lengthReadable regions,
@@ -477,7 +477,7 @@ private theorem shimRun (shimBase : Word) (original : Machine) (call : Call)
     rw [keeps _ fun valid => ⟨?_, fun index _ below => ?_⟩]
     · exact wordAtStore original.mem slot initial.ra byte
     · have apart := layout.slotApartHeader
-      unfold Call.outsideHeader at apart
+      simp only [Insert.Call.outsideHeader, wordBytes] at apart
       have := byte.isLt
       omega
     · have apart := layout.slotApartBuffer valid index below

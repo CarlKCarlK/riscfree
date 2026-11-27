@@ -2,7 +2,7 @@
 
 mod header;
 
-use header::{FULL, INDEX_OUT_OF_BOUNDS, INVALID_LENGTH, OK, RawVec};
+use header::{FULL, INDEX_OUT_OF_BOUNDS, INVALID_LENGTH, OK, Pair, RawVec};
 
 /// Insert a word at `index`. Inserting at `length` appends it.
 ///
@@ -14,6 +14,22 @@ use header::{FULL, INDEX_OUT_OF_BOUNDS, INVALID_LENGTH, OK, RawVec};
 /// the header, with the first `length` elements initialized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn raw_vec_u32_insert(vec: *mut RawVec<u32>, index: u32, value: u32) -> u32 {
+    // SAFETY: The caller supplies an exclusive header and the backing allocation
+    // required by insert.
+    unsafe { (&mut *vec).insert(index, value) }
+}
+
+/// Insert a pair at `index`. Inserting at `length` appends it.
+///
+/// # Safety
+///
+/// The same contract as `raw_vec_u32_insert`, with eight-byte elements.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn raw_vec_pair_insert(
+    vec: *mut RawVec<Pair>,
+    index: u32,
+    value: Pair,
+) -> u32 {
     // SAFETY: The caller supplies an exclusive header and the backing allocation
     // required by insert.
     unsafe { (&mut *vec).insert(index, value) }

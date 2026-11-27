@@ -36,14 +36,15 @@ just run-raw-vec
 
 The [generic Rust implementation](linked/raw_vec.rs) is compiled at
 `opt-level=1` for RV32IM and linked into the ESP32-C3 firmware. The byte check
-reads the function directly from the linked ELF and compares it with the
-[recorded instruction words](linked/raw_vec_u32.words). To disassemble the
-linked routine with the compiler's LLVM tools:
+reads each function directly from the linked ELF and compares it with its
+recorded instruction words ([u32](linked/raw_vec_u32.words),
+[Pair](linked/raw_vec_pair.words)). To disassemble the linked routines with the
+compiler's LLVM tools:
 
 ```bash
 host=$(rustc -vV | sed -n 's/^host: //p')
 "$(rustc --print sysroot)/lib/rustlib/$host/bin/llvm-objdump" \
-    --disassemble-symbols=raw_vec_u32_insert \
+    --disassemble-symbols=raw_vec_u32_insert,raw_vec_pair_insert \
     target/riscv32imc-unknown-none-elf/release/examples/raw_vec
 ```
 
@@ -53,6 +54,12 @@ calls or stack frame. The earlier research routine has a different loop and
 Inserting before a suffix of `m > 0` elements takes `18 + 6m` instructions,
 including the return. Invalid length, invalid index, and full capacity take
 5, 6, and 7 instructions respectively.
+
+The `RawVec<Pair>` instance, `raw_vec_pair_insert`, has 33 instructions. As
+predicted, it shifts by 3 instead of 2 and moves each pair with two loads and
+two stores. Register allocation also differs: the length is in `a4`, the loop
+counter in `a6`, and the moved pair passes through `a7` and `t0`. Append takes
+15 instructions and insertion before `m > 0` pairs takes `19 + 8m`.
 
 On an ESP32-C3 revision v0.4, the demo printed:
 

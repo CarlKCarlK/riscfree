@@ -1,4 +1,4 @@
-//! Compile the RawVec routine for the build scripts of the ESP32-C3 firmware
+//! Compile the RawVec routines for the build scripts of the ESP32-C3 firmware
 //! and the QEMU harness, so both link the same object.
 
 use std::{
@@ -7,8 +7,8 @@ use std::{
     process::Command,
 };
 
-/// Compile `raw_vec.rs` in `linked_directory` to an object in `OUT_DIR` and
-/// return its path.
+/// Compile `raw_vec.rs` in `linked_directory`, which defines every verified
+/// RawVec routine, to an object in `OUT_DIR` and return its path.
 pub fn raw_vec_object(linked_directory: &Path) -> PathBuf {
     let source = linked_directory.join("raw_vec.rs");
     println!("cargo:rerun-if-changed={}", source.display());
@@ -21,9 +21,14 @@ pub fn raw_vec_object(linked_directory: &Path) -> PathBuf {
         linked_directory.join("compile.rs").display()
     );
     let object =
-        PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR")).join("raw_vec_u32.o");
-    // Isolate the proof target from the caller's optimization settings and
-    // compile it for an ISA without compressed instructions.
+        PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR")).join("raw_vec.o");
+    compile(&source, &object);
+    object
+}
+
+/// Compile one source file to an object, isolated from the caller's
+/// optimization settings and for an ISA without compressed instructions.
+pub fn compile(source: &Path, object: &Path) {
     let status = Command::new(env::var_os("RUSTC").expect("Cargo sets RUSTC"))
         .args([
             "--edition",
@@ -40,10 +45,9 @@ pub fn raw_vec_object(linked_directory: &Path) -> PathBuf {
             "panic=abort",
             "-o",
         ])
-        .arg(&object)
-        .arg(&source)
+        .arg(object)
+        .arg(source)
         .status()
-        .expect("start rustc for the RawVec routine");
-    assert!(status.success(), "compile the RawVec routine");
-    object
+        .unwrap_or_else(|error| panic!("start rustc for {}: {error}", source.display()));
+    assert!(status.success(), "compile {}", source.display());
 }

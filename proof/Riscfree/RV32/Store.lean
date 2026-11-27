@@ -45,6 +45,15 @@ theorem WordAt.storeOther {memory : ByteMemory} {address written : Nat} {value d
   rw [storeWordOutside _ _ _ _ (by have := byte.isLt; omega)]
   exact word byte
 
+-- A word depends only on its own four bytes.
+theorem WordAt.congr {memory other : ByteMemory} {address : Nat} {value : BitVec 32}
+    (word : WordAt memory address value)
+    (same : ∀ byte, address ≤ byte → byte < address + 4 → other[byte]? = memory[byte]?) :
+    WordAt other address value := by
+  intro byte
+  rw [same _ (by omega) (by have := byte.isLt; omega)]
+  exact word byte
+
 set_option maxHeartbeats 2000000 in
 theorem writeAlignedRamWord (state : Machine) (address value : BitVec 32)
     (region : PMA_Region) (regions : List PMA_Region)
