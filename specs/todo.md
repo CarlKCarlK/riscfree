@@ -25,7 +25,6 @@ This checklist governs project priorities across development sessions.
 - [ ] Prove correctness over a sequence of successful insertions.
 - [ ] Connect cardinality to `ncard`.
 - [ ] Prove compositional stack-space bounds, including the complete range-insertion routine.
-- [ ] Establish a closed-form instruction-count bound.
 - [ ] Prove the firmware shim. Do this after the OOM work, since the calling convention or return-value handling may change.
 - [ ] Add a negative test for `checkCalls`.
 
