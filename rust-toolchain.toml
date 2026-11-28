@@ -1,0 +1,6 @@
+# The exact compiler that built the verified binaries. `just prove` checks
+# their linked machine code against the proofs, so changing this version
+# requires rerunning it.
+[toolchain]
+channel = "1.100.0"
+targets = ["riscv32imc-unknown-none-elf", "riscv32im-unknown-none-elf"]

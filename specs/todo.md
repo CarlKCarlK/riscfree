@@ -33,7 +33,7 @@ This checklist governs project priorities across development sessions.
 
 - [ ] Pass ESP32-C3 hardware tests on the final implementation. The pre-OOM baseline passed on November 27, 2026, including `Range insertion PASS`; rerun after the OOM changes.
 - [ ] Integrate with the QEMU harness.
-- [ ] Pin the Rust toolchain.
+- [x] Pin the Rust toolchain. `rust-toolchain.toml` pins rustc 1.100.0, which built the verified binaries; `just prove` passed with it on November 27, 2026.
 - [ ] Run `just prove` in CI. On a fresh checkout, `just prove` fails because `scripts/check_proof_sources.py` runs before `lake build` has fetched the range-set-blaze-vibe-validation dependency. Fix this ordering when adding CI.
 - [ ] Add Lean 4.28 to the mathematical repository's CI matrix.
 

@@ -66,3 +66,7 @@ they are more specific.
 - **Specification review.** Review what each theorem states, not merely
   whether Lean accepts its proof. Look for unnecessarily restrictive
   premises, missing postconditions, and vacuous guarantees.
+
+- **Pin the toolchain; verify the bytes.** Pin compiler versions
+  and compilation settings to make machine code reproducible.
+  Independently check that the linked machine code matches the proof.
