@@ -38,7 +38,7 @@ This checklist governs project priorities across development sessions.
 
 ## Infrastructure
 
-- [ ] Speed up proof builds and axiom audits where there is low-hanging fruit.
+- [x] Speed up proof builds and axiom audits where there is low-hanging fruit. On November 27, 2026: `just axiom-paths` went from 267 s to 25 s, a rebuild after a change to `Riscfree.RV32.Decode` from 449 s to 286 s, and `just kernel-check` from 236 s to 213 s, with 16 jobs kept as the default. See [build-performance.md](../docs/build-performance.md). Splitting `RangeInsert.DeleteTable` and `RangeInsert.InsertTable` and restructuring the decoder normal form are deferred until after publication.
 
 Improve reusable proof infrastructure only as needed by the approved work.
 
@@ -189,12 +189,13 @@ Measured on the 32-thread development machine with everything built:
   `RawVec/PairInsert/Instructions.lean` takes 75 s, and every edit to it or to
   a module it imports pays that cost. Leave the existing proofs as they are
   unless they are edited heavily.
-- Speed up `just axiom-paths` (47 s), now the largest part of `just prove`.
+- Speed up `just axiom-paths` (47 s), now the largest part of `just prove`. Done on November 27, 2026: it had grown to 267 s and now takes 25 s ([build-performance.md](../docs/build-performance.md)).
+- Split `RangeInsert.DeleteTable` (162 s) and `RangeInsert.InsertTable` (132 s) into modules that Lake can elaborate in parallel. Deferred until after publication.
 - Remove `--reference` from `scripts/AxiomAudit.lean` once the module-by-module
   selection has agreed with it through a few more proof additions.
 - Consider a separate fast `just check` for proof development if `just prove`
   becomes slow again.
-- Speed up the decoder normal form (949 s). It runs only on rare rebuilds.
+- Speed up the decoder normal form (949 s). It runs only on rare rebuilds. Its replay (about 210 s) is also the floor on `just kernel-check`. Deferred until after publication.
 
 ### Compositional stack-space bounds
 

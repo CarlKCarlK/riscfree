@@ -156,14 +156,16 @@ decoder. After that, `Popcount` elaborates in about 60 seconds and
 went through `simp`. `just kernel-check` optionally replays every module under
 `proof/` through Lean's kernel, one module at a time, with `leanchecker`'s
 replay function (`scripts/KernelCheck.lean`), 16 modules in parallel by default
-(`just kernel-check 8` for fewer). It is not part of `just prove` and takes
-about 3 minutes.
+(`just kernel-check 8` for fewer), starting with the three longest. It is not
+part of `just prove` and takes about 3.5 minutes, most of it the decoder normal
+form's replay.
 
-With everything built, `just prove` takes about 110 seconds, mostly the axiom
-checks. Editing an application theorem such as `proof/RawVec/PairInsert.lean`
-rebuilds in about 13 seconds. Editing a table of step lemmas such as
+With everything built, `just prove` takes about 93 seconds. Editing an
+application theorem such as `proof/RawVec/PairInsert.lean` rebuilds in about 13
+seconds. Editing a table of step lemmas such as
 `proof/RawVec/PairInsert/Instructions.lean`, or a module it imports, costs
-about 80 seconds.
+about 110 seconds. [docs/build-performance.md](docs/build-performance.md)
+records these times and how the job count affects kernel replay.
 
 The decoder normal form is rebuilt only when
 `proof/Riscfree/RV32/DecoderNormalForm.lean`, a module it imports

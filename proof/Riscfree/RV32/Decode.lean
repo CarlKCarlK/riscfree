@@ -36,9 +36,14 @@ open Lean Meta Elab Tactic LeanRV32D.Functions
 /-- Close `encdec_backwards word state = result` with `decodeMachineMode.eq` and a
 kernel reduction. Each hypothesis of `decodeMachineMode.eq` must be proved by one of
 `facts`. Returns `false`, with the goal and metavariable state unchanged, if the
-goal has another shape, a fact is missing, or the kernel cannot reduce the normal
-form to `result`. -/
-def decodeByNormalForm (facts : Array Expr) (goal : MVarId) : MetaM Bool :=
+goal has another shape, a fact is missing, or, when `kernelPrecheck` is set, the
+kernel cannot reduce the normal form to `result`.
+
+Without `kernelPrecheck`, a wrong `result` is not detected here: the goal is closed,
+and the kernel rejects the auxiliary theorem with an error after the tactic has
+finished. Use that only where nothing should be tried after a failure. -/
+def decodeByNormalForm (facts : Array Expr) (goal : MVarId) (kernelPrecheck : Bool := true) :
+    MetaM Bool :=
   goal.withContext <| commitWhen do
   let some (_, lhs, result) := (← instantiateMVars (← goal.getType)).eq? | return false
   -- Other goals could make `isDefEq` below unfold the whole Sail decoder.
@@ -63,9 +68,11 @@ def decodeByNormalForm (facts : Array Expr) (goal : MVarId) : MetaM Bool :=
   let some (_, _, normal) := (← inferType rewrite).eq? | return false
   -- Ask the kernel first: a failed check inside `mkAuxTheorem` is reported only after
   -- the tactic has finished, too late to fall back. The kernel checks the reduction
-  -- again when it adds the auxiliary theorem.
-  unless ← ofExceptKernelException (Kernel.isDefEq (← getEnv) (← getLCtx) normal result) do
-    return false
+  -- again when it adds the auxiliary theorem, so callers without a fallback skip this
+  -- first check, which roughly doubles the cost of each word.
+  if kernelPrecheck then
+    unless ← ofExceptKernelException (Kernel.isDefEq (← getEnv) (← getLCtx) normal result) do
+      return false
   let reduction ← mkAuxTheorem (← mkEq normal result) (← mkEqRefl result)
   goal.assign (← mkExpectedTypeHint (← mkEqTrans rewrite reduction) (← goal.getType))
   return true
@@ -118,14 +125,20 @@ elab_rules : tactic
     else
       evalTactic (← `(tactic| decode_word_simp [$facts,*]))
 
-/-- Like `decode_word`, but fails instead of falling back to `decode_word_simp`. -/
+/-- Like `decode_word`, but fails instead of falling back to `decode_word_simp`.
+
+It skips the kernel pre-check: when the normal form does not reduce to the expected
+instruction, the kernel's rejection of the auxiliary theorem is the error, reported
+after the tactic has finished. So do not put this tactic before another alternative
+in `first`; a kernel failure would not reach it. -/
 syntax "decode_word_normal_form" "[" term,* "]" : tactic
 
 open Lean Elab Tactic in
 elab_rules : tactic
   | `(tactic| decode_word_normal_form [$facts,*]) => withMainContext do
     let factProofs ← facts.getElems.mapM fun fact => elabTerm fact none
-    unless ← Riscfree.RV32.decodeByNormalForm factProofs (← getMainGoal) do
+    unless ← Riscfree.RV32.decodeByNormalForm factProofs (← getMainGoal)
+        (kernelPrecheck := false) do
       throwError "decode_word_normal_form: the normal form does not decode this word from the facts"
     replaceMainGoal []
 

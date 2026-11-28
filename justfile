@@ -82,36 +82,24 @@ prove:
         '"reject-uncompressed", "{{linked}}/negative/emulator-rvc.elf"' \
         ']'; } | lake env lean -DwarningAsError=true --stdin
 
-# Explain each axiom the RawVec and shim theorems reach, and fail unless the executed instructions reach only the expected ones.
+# Explain each axiom the verified routines' theorems reach, and fail unless the executed instructions reach only the expected ones.
+# One process imports every module once and runs each `--module` check with its own flags.
 axiom-paths:
-    lake env lean --run scripts/AxiomPaths.lean RawVec.Shim Riscfree.RawVec.rawVecU32InsertSailCorrect \
-        Riscfree.RawVec.callRawVecU32InsertSailCorrect {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RawVec.PairInsert \
-        Riscfree.RawVec.PairInsert.rawVecPairInsertSailCorrect {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RawVec.U32Remove \
-        Riscfree.RawVec.U32Remove.rawVecU32RemoveSailCorrect {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RawVec.PairRemove \
-        Riscfree.RawVec.PairRemove.rawVecPairRemoveSailCorrect {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean SortedMap.Search.Correct \
-        Riscfree.SortedMap.Search.sortedMapSearchSailCorrect {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean SortedMap.Remove \
-        Riscfree.SortedMap.Remove.sortedMapRemoveSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean SortedMap.Insert \
-        Riscfree.SortedMap.Insert.sortedMapInsertSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Empty \
-        Riscfree.RangeInsert.Empty.Premises.run {{ empty-range-axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Contained \
-        Riscfree.RangeInsert.Nonempty.ContainedPremises.run {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RangeInsert.DeleteExtra.Helper \
-        Riscfree.RangeInsert.DeleteExtra.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Extension.Run \
-        Riscfree.RangeInsert.Nonempty.ExtensionPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Nonempty.Fresh.Run \
-        Riscfree.RangeInsert.Nonempty.FreshPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Correct \
-        Riscfree.RangeInsert.Nonempty.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
-    lake env lean --run scripts/AxiomPaths.lean RangeInsert.Theorem \
-        Riscfree.RangeInsert.Nonempty.InsertionPremises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+    lake env lean --run scripts/AxiomPaths.lean \
+        --module RawVec.Shim Riscfree.RawVec.rawVecU32InsertSailCorrect Riscfree.RawVec.callRawVecU32InsertSailCorrect {{ axiom-path-flags }} \
+        --module RawVec.PairInsert Riscfree.RawVec.PairInsert.rawVecPairInsertSailCorrect {{ axiom-path-flags }} \
+        --module RawVec.U32Remove Riscfree.RawVec.U32Remove.rawVecU32RemoveSailCorrect {{ axiom-path-flags }} \
+        --module RawVec.PairRemove Riscfree.RawVec.PairRemove.rawVecPairRemoveSailCorrect {{ axiom-path-flags }} \
+        --module SortedMap.Search.Correct Riscfree.SortedMap.Search.sortedMapSearchSailCorrect {{ axiom-path-flags }} \
+        --module SortedMap.Remove Riscfree.SortedMap.Remove.sortedMapRemoveSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module SortedMap.Insert Riscfree.SortedMap.Insert.sortedMapInsertSailCorrect --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module RangeInsert.Empty Riscfree.RangeInsert.Empty.Premises.run {{ empty-range-axiom-path-flags }} \
+        --module RangeInsert.Nonempty.Contained Riscfree.RangeInsert.Nonempty.ContainedPremises.run {{ axiom-path-flags }} \
+        --module RangeInsert.DeleteExtra.Helper Riscfree.RangeInsert.DeleteExtra.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module RangeInsert.Nonempty.Extension.Run Riscfree.RangeInsert.Nonempty.ExtensionPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module RangeInsert.Nonempty.Fresh.Run Riscfree.RangeInsert.Nonempty.FreshPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module RangeInsert.Correct Riscfree.RangeInsert.Nonempty.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module RangeInsert.Theorem Riscfree.RangeInsert.Nonempty.InsertionPremises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \
@@ -122,12 +110,20 @@ empty-range-axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
 
 # Optional: replay every proof module through Lean's kernel with leanchecker's replay. Not part of `prove`.
 # Each replay reports 6–7 GB resident, but that is mostly the memory-mapped Sail `.olean` files, which
-# all jobs share. With 16 jobs, physical memory in use peaked at 21 GB (5 GB idle).
+# all jobs share. With 16 jobs, physical memory in use peaked 17 GiB above idle, with no swapping.
+# 16 jobs was the fastest of 12, 16, 24, and 32 (docs/build-performance.md).
 kernel-check jobs="16":
     lake build
-    { find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g'; \
+    { printf '%s\n' {{ slowest-replays }}; \
+        { find proof -name '*.lean' | sed -e 's|^proof/||' -e 's|\.lean$||' -e 's|/|.|g'; \
         python3 scripts/check_proof_sources.py --dependency-modules; } | sort | \
+        grep -vxF {{ prepend("-e ", slowest-replays) }}; } | \
         xargs -P {{ jobs }} -I {} sh -c '/usr/bin/time -f "replayed {} in %e s, peak %M KB" lake env lean --run scripts/KernelCheck.lean {} > /dev/null'
+
+# The longest replays (about 210, 180, and 150 s with 16 jobs), which `kernel-check` starts first so that none of
+# them starts late and finishes last. The rest follow alphabetically, so every module still
+# replays exactly once; a module listed here that no longer exists fails its replay.
+slowest-replays := "Riscfree.RV32.DecoderNormalForm RangeInsert.DeleteTable RangeInsert.InsertTable"
 
 # Build every firmware and QEMU ELF file that `prove` checks.
 [private]
