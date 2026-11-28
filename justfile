@@ -99,7 +99,9 @@ axiom-paths:
         --module RangeInsert.Nonempty.Extension.Run Riscfree.RangeInsert.Nonempty.ExtensionPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
         --module RangeInsert.Nonempty.Fresh.Run Riscfree.RangeInsert.Nonempty.FreshPrefix.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
         --module RangeInsert.Correct Riscfree.RangeInsert.Nonempty.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
-        --module RangeInsert.Theorem Riscfree.RangeInsert.Nonempty.InsertionPremises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
+        --module RangeInsert.Theorem Riscfree.RangeInsert.Nonempty.InsertionPremises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module RangeInsert.Bounded.Unified Riscfree.RangeInsert.Bounded.Unified.Premises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }} \
+        --module RangeInsert.Bounded.Theorem Riscfree.RangeInsert.Bounded.Unified.InsertionPremises.run --root LeanRV32D.Functions.execute_JAL {{ axiom-path-flags }}
 
 axiom-path-flags := "--block LeanRV32D.Functions.execute " + \
     prepend("--root LeanRV32D.Functions.execute_", "LOAD STORE BTYPE ITYPE RTYPE SHIFTIOP JALR UTYPE") + " " + \
@@ -123,7 +125,7 @@ kernel-check jobs="16":
 # The longest replays (about 210, 180, and 150 s with 16 jobs), which `kernel-check` starts first so that none of
 # them starts late and finishes last. The rest follow alphabetically, so every module still
 # replays exactly once; a module listed here that no longer exists fails its replay.
-slowest-replays := "Riscfree.RV32.DecoderNormalForm RangeInsert.DeleteTable RangeInsert.InsertTable"
+slowest-replays := "Riscfree.RV32.DecoderNormalForm RangeInsert.DeleteTable RangeInsert.InsertTable RangeInsert.Bounded.DeleteTable RangeInsert.Bounded.InsertTable"
 
 # Build every firmware and QEMU ELF file that `prove` checks.
 [private]
@@ -156,7 +158,7 @@ corrupt-linked:
     python3 scripts/corrupt_elf.py flip {{emulator_release}}/examples/raw_vec sorted_map_remove {{linked}}/negative/sorted-map-remove.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec sorted_map_insert {{linked}}/negative/sorted-map-insert.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec range_insert_u32 {{linked}}/negative/range-insert.elf
-    python3 scripts/corrupt_elf.py flip-at {{emulator_release}}/examples/raw_vec range_insert_u32 0x4b {{linked}}/negative/range-insert-call.elf
+    python3 scripts/corrupt_elf.py flip-at {{emulator_release}}/examples/raw_vec range_insert_u32 0x53 {{linked}}/negative/range-insert-call.elf
     python3 scripts/corrupt_elf.py flip {{firmware_release}}/examples/raw_vec call_range_insert_u32 {{linked}}/negative/range-insert-shim.elf
     python3 scripts/corrupt_elf.py rvc {{emulator_release}}/examples/raw_vec {{linked}}/negative/emulator-rvc.elf
 
@@ -166,16 +168,5 @@ test-range-insert-host:
     rustc --edition 2024 --test research/vec-ffi/linked/range_insert_host.rs -o {{linked}}/range-insert-host
     {{linked}}/range-insert-host
 
-# Both exhausted insertions must take the illegal-instruction trap in QEMU.
-test-range-insert-exhaustion:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd emulator
-    for mode in range-map-full range-scratch-full; do
-        result=0
-        output=$(cargo run --locked --release --example raw_vec --features "$mode" 2>&1) || result=$?
-        printf '%s\n' "$output"
-        test "$result" -eq 2
-        [[ "$output" == *"Range insertion PASS"* ]]
-        [[ "$output" == *"FAIL: trap mcause=0x00000002"* ]]
-    done
+# The shared cases assert OOM returns and exercise exact-fit and zero capacities.
+test-range-insert-exhaustion: emulate-raw-vec

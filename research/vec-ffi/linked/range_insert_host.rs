@@ -2,7 +2,8 @@
 
 mod range_insert_algorithm;
 
-use std::{collections::BTreeMap, ops::RangeInclusive};
+use core::{convert::Infallible, ops::RangeInclusive};
+use std::collections::BTreeMap;
 
 use range_insert_algorithm::{DeletionKeys, Endpoint, Map, internal_add_baseline};
 
@@ -11,10 +12,12 @@ pub fn insert<T: Endpoint>(
     length: &mut T::Length,
     range: RangeInclusive<T>,
 ) {
-    internal_add_baseline(map, length, range, Vec::new());
+    let Ok(()) = internal_add_baseline(map, length, range, Vec::new());
 }
 
 impl<T: Endpoint> Map<T> for BTreeMap<T, T> {
+    type Error = Infallible;
+
     fn predecessor(&mut self, key: T) -> Option<(&T, &mut T)> {
         self.range_mut(..=key).next_back()
     }
@@ -23,9 +26,10 @@ impl<T: Endpoint> Map<T> for BTreeMap<T, T> {
         self.range_mut(key..)
     }
 
-    fn insert_new(&mut self, start: T, end: T) {
+    fn insert_new(&mut self, start: T, end: T) -> Result<(), Self::Error> {
         let previous = self.insert(start, end);
         debug_assert!(previous.is_none());
+        Ok(())
     }
 
     fn remove(&mut self, key: T) {
@@ -34,8 +38,11 @@ impl<T: Endpoint> Map<T> for BTreeMap<T, T> {
 }
 
 impl<T> DeletionKeys<T> for Vec<T> {
-    fn push(&mut self, key: T) {
+    type Error = Infallible;
+
+    fn push(&mut self, key: T) -> Result<(), Self::Error> {
         self.push(key);
+        Ok(())
     }
 
     fn is_empty(&self) -> bool {

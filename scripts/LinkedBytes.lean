@@ -8,8 +8,8 @@ import SortedMap.Search.Instructions
 import SortedMap.Remove.Instructions
 import SortedMap.Insert.Table
 import Riscfree.Elf
-import RangeInsert.InsertTable
-import RangeInsert.DeleteTable
+import RangeInsert.Bounded.InsertTable
+import RangeInsert.Bounded.DeleteTable
 
 /-!
 # Linked-byte checks
@@ -89,30 +89,30 @@ def checkCalls (caller : Nat) (instructions : List (BitVec 32 × instruction))
     checkCall caller address symbol instructions index
 
 def checkRangeInsert (path : String) : IO Unit := do
-  let insertWords := RangeInsert.InsertTable.instructions
-  let deleteWords := RangeInsert.DeleteTable.instructions
-  let insert ← verifyElfSymbol path RangeInsert.InsertTable.symbol (insertWords.map Prod.fst)
-  let delete ← verifyElfSymbol path RangeInsert.DeleteTable.symbol (deleteWords.map Prod.fst)
+  let insertWords := RangeInsert.Bounded.InsertTable.instructions
+  let deleteWords := RangeInsert.Bounded.DeleteTable.instructions
+  let insert ← verifyElfSymbol path RangeInsert.Bounded.InsertTable.symbol (insertWords.map Prod.fst)
+  let delete ← verifyElfSymbol path RangeInsert.Bounded.DeleteTable.symbol (deleteWords.map Prod.fst)
   let upper ← verifyElfSymbol path "sorted_map_upper_bound" (SortedMap.Search.upperInstructions.map Prod.fst)
   let lower ← verifyElfSymbol path "sorted_map_lower_bound" (SortedMap.Search.lowerInstructions.map Prod.fst)
   let mapInsert ← verifyElfSymbol path "sorted_map_insert" (SortedMap.Insert.instructions.map Prod.fst)
   let mapRemove ← verifyElfSymbol path "sorted_map_remove" (SortedMap.Remove.instructions.map Prod.fst)
   let push ← verifyElfSymbol path "raw_vec_u32_insert" (RawVec.instructions.map Prod.fst)
   checkCalls insert insertWords [
-    (17, upper, "sorted_map_upper_bound"), (39, mapInsert, "sorted_map_insert"),
-    (52, mapInsert, "sorted_map_insert"), (60, delete, "delete_extra"),
-    (104, delete, "delete_extra")]
+    (19, upper, "sorted_map_upper_bound"), (38, mapInsert, "sorted_map_insert"),
+    (50, mapInsert, "sorted_map_insert"), (61, delete, "delete_extra"),
+    (98, delete, "delete_extra")]
   checkCalls delete deleteWords [
-    (19, lower, "sorted_map_lower_bound"), (55, push, "raw_vec_u32_insert"),
-    (91, mapRemove, "sorted_map_remove")]
+    (19, lower, "sorted_map_lower_bound"), (64, push, "raw_vec_u32_insert"),
+    (106, mapRemove, "sorted_map_remove")]
   IO.println "Range insertion: all eight linked call targets checked"
 
 def checkRangeInsertShim (path : String) : IO Unit := do
-  let insert ← verifyElfSymbol path RangeInsert.InsertTable.symbol
-    (RangeInsert.InsertTable.instructions.map Prod.fst)
+  let insert ← verifyElfSymbol path RangeInsert.Bounded.InsertTable.symbol
+    (RangeInsert.Bounded.InsertTable.instructions.map Prod.fst)
   let shim ← verifyElfSymbol path "call_range_insert_u32"
-    [0xff010113, 0x00112623, 0x00000097, 0xe44080e7, 0x00c12083, 0x01010113, 0x00008067]
-  unless shim == insert + 0x1b4 do
+    [0xff010113, 0x00112623, 0x00000097, 0xe28080e7, 0x00c12083, 0x01010113, 0x00008067]
+  unless shim == insert + 0x1d0 do
     throw (IO.userError "Range insertion call target differs in the firmware shim")
 
 def runCheck : String → String → IO Unit

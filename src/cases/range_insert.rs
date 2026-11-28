@@ -1,9 +1,9 @@
 //! Cases shared by the two executable harnesses.
 
-use crate::header::{Pair, RawVec};
-use core::mem::MaybeUninit;
+use crate::header::{FULL, OK, Pair, RawVec};
+use core::{mem::MaybeUninit, ptr::NonNull};
 
-type Insert = unsafe extern "C" fn(*mut RawVec<Pair>, *mut u64, u32, u32, *mut u32, u32);
+type Insert = unsafe extern "C" fn(*mut RawVec<Pair>, *mut u64, u32, u32, *mut u32, u32) -> u32;
 
 /// # Safety
 ///
@@ -48,6 +48,13 @@ pub unsafe fn run(insert: Insert) {
             1,
             0,
         ),
+        Case::oom(&[], (5, 5), 0, 0),
+        Case::oom(&[(4, 9)], (2, 3), 1, 1),
+        Case::oom(&[(4, 9)], (2, 3), 1, 0),
+        Case::oom(&[(4, 9)], (2, 3), 2, 0),
+        Case::oom(&[(4, 9), (12, 16)], (10, 11), 2, 0),
+        Case::oom(&[(4, 9), (12, 16)], (2, 11), 3, 1),
+        Case::new(&[(4, 9), (12, 16)], (2, 11), &[(2, 16)], 3, 2),
     ];
     for (case_index, &case) in cases.iter().enumerate() {
         // SAFETY: The case provides the initial map and scratch allocation.
@@ -59,7 +66,7 @@ pub unsafe fn run(insert: Insert) {
 struct Case {
     initial: &'static [(u32, u32)],
     input: (u32, u32),
-    expected: &'static [(u32, u32)],
+    expected: Option<&'static [(u32, u32)]>,
     map_capacity: u32,
     scratch_capacity: u32,
 }
@@ -75,7 +82,22 @@ impl Case {
         Self {
             initial,
             input,
-            expected,
+            expected: Some(expected),
+            map_capacity,
+            scratch_capacity,
+        }
+    }
+
+    const fn oom(
+        initial: &'static [(u32, u32)],
+        input: (u32, u32),
+        map_capacity: u32,
+        scratch_capacity: u32,
+    ) -> Self {
+        Self {
+            initial,
+            input,
+            expected: None,
             map_capacity,
             scratch_capacity,
         }
@@ -98,32 +120,47 @@ unsafe fn check(insert: Insert, case_index: usize, case: Case) {
     for (slot, &(key, value)) in entries.iter_mut().zip(case.initial) {
         slot.write(Pair { key, value });
     }
+    let data = if case.map_capacity == 0 {
+        NonNull::dangling().as_ptr()
+    } else {
+        entries.as_mut_ptr().cast()
+    };
+    let scratch_data = if case.scratch_capacity == 0 {
+        NonNull::dangling().as_ptr()
+    } else {
+        scratch.as_mut_ptr().cast()
+    };
     let mut map = RawVec {
-        data: entries.as_mut_ptr().cast(),
+        data,
         length: case.initial.len() as u32,
         capacity: case.map_capacity,
     };
     let mut length = cardinality(case.initial);
     let (start, end) = case.input;
-    // SAFETY: The map and scratch regions are disjoint and sized for their
-    // capacities. The map live prefix and cached cardinality are initialized.
-    unsafe {
+    // SAFETY: Nonempty allocations are disjoint and large enough for their
+    // capacities. Zero-capacity pointers are aligned and nonnull. The map
+    // live prefix and cached cardinality are initialized.
+    let status = unsafe {
         insert(
             &mut map,
             &mut length,
             start,
             end,
-            scratch.as_mut_ptr().cast(),
+            scratch_data,
             case.scratch_capacity,
-        );
-    }
-    assert_eq!(
-        map.length as usize,
-        case.expected.len(),
-        "case {case_index}"
-    );
-    assert_eq!(length, cardinality(case.expected), "case {case_index}");
-    for (slot, &(key, value)) in entries.iter().zip(case.expected) {
+        )
+    };
+    assert_eq!(map.data, data, "case {case_index}");
+    assert_eq!(map.capacity, case.map_capacity, "case {case_index}");
+    assert!(map.length <= map.capacity, "case {case_index}");
+    let Some(expected) = case.expected else {
+        assert_eq!(status, FULL, "case {case_index}");
+        return;
+    };
+    assert_eq!(status, OK, "case {case_index}");
+    assert_eq!(map.length as usize, expected.len(), "case {case_index}");
+    assert_eq!(length, cardinality(expected), "case {case_index}");
+    for (slot, &(key, value)) in entries.iter().zip(expected) {
         // SAFETY: The routine initializes the live prefix before it returns.
         assert_eq!(
             unsafe { slot.assume_init() },

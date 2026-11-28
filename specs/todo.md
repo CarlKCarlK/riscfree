@@ -19,13 +19,14 @@ This checklist governs project priorities across development sessions.
 
 ## Phase 2: Additional verification
 
-- [ ] Return OOM status and prove failure semantics.
-- [ ] Prove that discarding the set after OOM is safe.
-- [ ] Verify zero production overhead from `Infallible`.
+- [x] Return OOM status and prove failure semantics. `RangeInsert.Bounded.Unified.Premises.run` covers every path and every map and scratch capacity, including zero, with no capacity premise. It returns `OK` exactly when `Call.capacityOutcome` is `success`, so `FULL` is never spurious, and on both outcomes it proves termination, return, saved registers, and preservation outside the writable regions. Witnesses cover every path and outcome.
+- [x] Prove that discarding the set after OOM is safe. After `FULL` the header's data pointer and capacity are unchanged and its length is within capacity.
+- [x] Verify zero production overhead from `Infallible`. Optimized x86-64 assembly for the extracted `u32` production adapter matches the trapping version on Rust 1.89 and 1.100.0 after renaming generic symbols.
+- [ ] Retire the trapping version's execution proofs (`Correct.lean`, `Theorem.lean`, the extension and fresh runs, and their tables and witnesses), which no longer describe a built binary. This requires moving the shared definitions out of about 45 mixed modules first.
 - [ ] Prove correctness over a sequence of successful insertions.
 - [ ] Connect cardinality to `ncard`.
 - [ ] Prove compositional stack-space bounds, including the complete range-insertion routine.
-- [ ] Prove the firmware shim. Do this after the OOM work, since the calling convention or return-value handling may change.
+- [ ] Prove the firmware shim. Do this after the OOM work, since the calling convention or return-value handling may change. The OOM work kept the seven-instruction shim; only its `jalr` immediate changed, and the linked-byte check now expects the new words.
 - [ ] Add a negative test for `checkCalls`.
 
 ## Phase 3: Testing and reproducibility

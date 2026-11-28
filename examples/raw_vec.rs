@@ -31,7 +31,7 @@ unsafe extern "C" {
         end: u32,
         scratch: *mut u32,
         scratch_capacity: u32,
-    );
+    ) -> u32;
     fn call_raw_vec_u32_insert(vec: *mut RawVec<u32>, index: u32, value: u32) -> u32;
     fn call_raw_vec_pair_insert(vec: *mut RawVec<Pair>, index: u32, value: Pair) -> u32;
     // Removal shims, in `raw_vec_remove_call.S`.

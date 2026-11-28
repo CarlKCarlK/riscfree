@@ -4,7 +4,7 @@ mod header;
 mod range_insert_algorithm;
 
 use core::{iter::Copied, marker::PhantomData, mem::MaybeUninit, slice};
-use header::{OK, Pair, RawVec};
+use header::{FULL, OK, Pair, RawVec};
 use range_insert_algorithm::{DeletionKeys, Map, internal_add_baseline};
 
 unsafe extern "C" {
@@ -17,15 +17,20 @@ unsafe extern "C" {
 
 /// Insert into an inclusive range set with caller-owned map and scratch storage.
 ///
+/// Returns `OK` on success and `FULL` if either allocation is exhausted.
+/// After `FULL`, discard the set and its cached cardinality. The caller
+/// retains ownership of both allocations.
+///
 /// # Safety
 ///
 /// The map header and its allocation must satisfy the sorted-map routines'
-/// contracts. Its initialized prefix must consist of canonical ranges.
+/// contracts. Its data pointer must be aligned and nonnull even at zero
+/// capacity. Its initialized prefix must consist of canonical ranges.
 /// `length` must point to an aligned, initialized `u64` equal to the set's
-/// cardinality. `scratch` must
-/// point to an aligned allocation for `scratch_capacity` words (or be aligned
-/// and nonnull at zero capacity). The two allocations must meet the Rust slice
-/// size bounds. The headers and allocations must be mutually disjoint and
+/// cardinality. `scratch` must point to an aligned allocation for
+/// `scratch_capacity` words, or be aligned and nonnull at zero capacity.
+/// The size of each allocation in bytes must be at most `isize::MAX`.
+/// The headers, cache, and bytes of both allocations must be disjoint and
 /// exclusively accessible for the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn range_insert_u32(
@@ -35,25 +40,34 @@ pub unsafe extern "C" fn range_insert_u32(
     end: u32,
     scratch: *mut u32,
     scratch_capacity: u32,
-) {
+) -> u32 {
     // SAFETY: The caller supplies the exclusive map, cache, and scratch storage.
     unsafe {
         let scratch = slice::from_raw_parts_mut(
             scratch.cast::<MaybeUninit<u32>>(),
             scratch_capacity as usize,
         );
-        internal_add_baseline(
+        match internal_add_baseline(
             &mut BoundedMap(&mut *map),
             &mut *length,
             start..=end,
             BoundedKeys::new(scratch),
-        );
+        ) {
+            Ok(()) => OK,
+            Err(Error::OutOfMemory) => FULL,
+        }
     }
+}
+
+enum Error {
+    OutOfMemory,
 }
 
 struct BoundedMap<'a>(&'a mut RawVec<Pair>);
 
 impl Map<u32> for BoundedMap<'_> {
+    type Error = Error;
+
     fn predecessor(&mut self, key: u32) -> Option<(&u32, &mut u32)> {
         // SAFETY: The map header and its initialized prefix are valid. A
         // nonzero upper-bound rank is at most the length.
@@ -82,7 +96,7 @@ impl Map<u32> for BoundedMap<'_> {
             .map(|entry| (&entry.key, &mut entry.value))
     }
 
-    fn insert_new(&mut self, start: u32, end: u32) {
+    fn insert_new(&mut self, start: u32, end: u32) -> Result<(), Self::Error> {
         // SAFETY: The caller supplies an exclusive map and backing allocation.
         let status = unsafe {
             sorted_map_insert(
@@ -93,7 +107,7 @@ impl Map<u32> for BoundedMap<'_> {
                 },
             )
         };
-        require_success(status);
+        allocation_result(status)
     }
 
     fn remove(&mut self, key: u32) {
@@ -123,12 +137,14 @@ impl<'a> BoundedKeys<'a> {
 }
 
 impl DeletionKeys<u32> for BoundedKeys<'_> {
-    fn push(&mut self, key: u32) {
+    type Error = Error;
+
+    fn push(&mut self, key: u32) -> Result<(), Self::Error> {
         let index = self.raw.length;
         // SAFETY: The caller supplies exclusive scratch storage, and the
         // vector initializes the prefix before increasing its length.
         let status = unsafe { raw_vec_u32_insert(&mut self.raw, index, key) };
-        require_success(status);
+        allocation_result(status)
     }
 
     fn is_empty(&self) -> bool {
@@ -152,5 +168,13 @@ impl<'a> IntoIterator for BoundedKeys<'a> {
 fn require_success(status: u32) {
     if status != OK {
         range_insert_algorithm::insertion_failed();
+    }
+}
+
+fn allocation_result(status: u32) -> Result<(), Error> {
+    match status {
+        OK => Ok(()),
+        FULL => Err(Error::OutOfMemory),
+        _ => range_insert_algorithm::insertion_failed(),
     }
 }

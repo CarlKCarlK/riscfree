@@ -55,9 +55,11 @@ used in the RV32I bookkeeping.
 Let `n` be the original number of ranges and `k` the number of collected
 successors. Successful insertion requires capacity `n+1` on the fresh
 path and `n` on the other paths. The deletion buffer needs at least
-`k` slots. Both exhaustion cases trap in QEMU. Scratch exhaustion can
-occur after writes to the map or cached length. These are executable
-observations. The exhaustion paths have no Sail termination theorem.
+`k` slots. Otherwise the bounded routine returns `FULL`, with no
+preliminary capacity check or rollback. Scratch exhaustion can occur
+after writes to the map or cached length, so the caller must discard the
+set after `FULL`. `RangeInsert.Bounded` proves both outcomes (see
+[Phase 2 bounded execution theorem](#phase-2-bounded-execution-theorem)).
 
 With linear sorted-map search and shifting, the fresh or extension path
 takes `O((k+1)(n+1))` instructions. Each deletion performs a new linear
@@ -66,8 +68,10 @@ iterator itself takes `O(k+1)` steps. Appending a key takes constant time.
 The contained case uses only the predecessor search, and the empty input
 needs no search.
 
-With rustc 1.100.0, the linked entry has 109 instruction words and the
-linked deletion helper has 117. The following QEMU counts (`-singlestep -d exec,nochain`) include calls through the
+With rustc 1.100.0, the trapping version's linked entry had 109
+instruction words and its deletion helper 117. The bounded version has 116
+and 120, with the same 48-byte frames. The following QEMU counts, taken on
+the trapping version, (`-singlestep -d exec,nochain`) include calls through the
 whole stack, starting at the first instruction of `range_insert_u32` and
 ending at its return. They are execution measurements for the shared test
 inputs. Sail independently proves the empty-input count.
@@ -163,15 +167,20 @@ decode table, the search theorem, and the empty path's frame lemmas.
 
 - `just test-range-insert-host` exercises the production adapter over
   16,384 small-domain cases and the endpoint extremes.
-- `just emulate-raw-vec` runs all shared cases under QEMU.
-  `just test-range-insert-exhaustion` verifies the two expected traps.
+- `just emulate-raw-vec` runs all shared cases under QEMU, including
+  `FULL` returns at zero capacity, a full map whose final set would fit,
+  both resources short, scratch exhaustion on each modifying path (also
+  after one successful append), and an exact fit. Every case checks that
+  the header's data pointer and capacity are unchanged and the length is
+  within capacity. `just test-range-insert-exhaustion` runs these cases.
 - `just build-raw-vec` checks the ESP32-C3 ELF. After flashing with
   `just run-raw-vec`, the firmware should print `Range insertion PASS`.
   The physical ESP32-C3 run passed on November 27, 2026, printing
   `Range insertion PASS`. That run goes through the compressed caller's
   firmware shim, whose formal proof is still pending.
-- The ELF checks cover both range insertion symbols, including trap bytes,
-  their eight call sites, the existing collection callees, and the firmware
+- The ELF checks compare both bounded range insertion symbols with
+  `Bounded/InsertTable.lean` and `Bounded/DeleteTable.lean`, including trap
+  bytes, their eight call sites, the existing collection callees, and the firmware
   shim. The negative fixtures modify an instruction byte, a linked call
   immediate, and a shim byte.
 
@@ -284,8 +293,8 @@ path-specific storage premises of the existing execution proof.
 Concrete model examples cover zero capacity, exact fit, scratch one
 word short, and map failure taking precedence when both are short.
 The module elaborated in 5.98 s with a peak RSS of about 6.5 GiB using
-the baseline build artifacts. These results describe the capacity model.
-The machine proof still uses the Phase 1 binary.
+the baseline build artifacts. `RangeInsert.Bounded` proves the bounded
+binary against this model.
 
 `RangeInsert.CapacityStatus` composes the existing sorted-map and RawVec
 runs with the status checks needed by range insertion. A full fresh
@@ -304,8 +313,9 @@ instructions. It changes no memory. All 40 bytes at entry offset
 `0x1a0` agree in the QEMU and firmware ELFs. The concrete witness starts
 with different values in the registers being restored. Elaboration
 took 22.63 s for the epilogue and 5.41 s for the witness. Independent
-kernel replay took 21.47 s. The callers still need proofs that reach
-this fragment with the required saved words.
+kernel replay took 21.47 s. The bounded execution proof reaches the same
+instructions through the full entry table (`Bounded/Entry.lean`), so this
+standalone fragment is not on that theorem's path.
 
 The baseline success theorem now invokes `MapStorage.metadataKept`
 through `InitialLayout.metadataKept`. The same lemma can recover the
@@ -314,3 +324,89 @@ the write footprint. It does not depend on the final length or on
 canonical ranges. The success theorem's statement and witness
 statements were unchanged. Kernel replay of the theorem and its
 layout witness took 9.10 s.
+
+## Phase 2 bounded execution theorem
+
+`RangeInsert.Bounded` proves the bounded linked binary, in which both
+allocating operations propagate `Result` and the entry point returns `OK`
+(0) or `FULL` (1) in `a0`. `Bounded.Unified.Premises.run` has no
+spare-slot or scratch-capacity premise. For every map and scratch capacity
+that the initial layout allows, including zero, it proves:
+
+- termination after the exact count of the path and outcome that run;
+- return at the link register with the stack pointer and every register
+  outside the caller-saved list restored;
+- no change to any byte outside the declared writable regions (the
+  112-byte stack area, the two cache words, the scratch allocation, the map
+  allocation, and the map header's length word);
+- `a0 = OK` exactly when `Call.capacityOutcome` is `success`, so `FULL`
+  is never returned spuriously;
+- on `OK`, the live entries and cache hold the trapping version's verified
+  result for that path;
+- on `FULL`, the header's length word is at most its capacity.
+
+`Bounded.Unified.InsertionPremises.run` adds that the header's data
+pointer and capacity are unchanged on every outcome and, on `OK`, that the
+result represents `internalAddProduction`: the union of the set and the
+input, with its cardinality cached. With the data pointer, capacity, and a
+length within capacity, the caller can release the allocation after
+`FULL`. The set's entries and cached count are not otherwise specified.
+
+| Path and outcome | Bounded instructions | Trapping version |
+| --- | --- | --- |
+| Empty | 21 | 19 |
+| Contained | 46 + upper-bound search | 44 + search |
+| Extension, OK or `FULL` | 58 + search + helper + 11 | 68 + search + helper |
+| Fresh, map full | 27 (no predecessor) or 38 (gap) + search + sorted insertion + 13 | traps |
+| Fresh, OK | to helper + helper + 22 | to helper + helper + 20 |
+| Fresh, scratch `FULL` | to helper + failed scan + 11 | traps |
+
+The helper's failed scan processes exactly the scratch capacity's worth of
+accepted successors, then returns `FULL` from the first append that does
+not fit. Its unchanged-memory guarantee covers every byte outside the
+helper's frame and scan footprint.
+
+### Reuse and changes
+
+The trapping version's machine-independent definitions and results are
+reused unchanged: the deletion-helper model, the scan and removal
+invariants, the production-model correspondence (`Call.resultRepresents`),
+the path selector, the collection proofs, and the capacity model. The
+bounded result is the trapping version's `Call.result` with the bounded
+count, so the representation theorem transfers without change. The new
+work is step lemmas for both new tables, the changed register allocation
+of the helper's scan, both `FULL` paths through the helper and the caller,
+the fresh path's scratch header written after insertion instead of
+before, and the composition. The scan's loop head now carries the cursor
+in `a0` and the cache's low word in `a2`, so the old fixed-PC lemmas were
+regenerated at the new offsets.
+
+The trapping version's execution proofs (`Correct.lean`, `Theorem.lean`,
+`Nonempty/Extension/Run.lean`, `Nonempty/Fresh/Run.lean`, and their
+witnesses) still check against the recorded trapping tables in
+`InsertTable.lean` and `DeleteTable.lean`. They no longer describe a built
+binary. Retiring them means splitting the shared definitions out of about
+45 modules, which is left as a separate change.
+
+### Nonvacuity and checks
+
+`Bounded/Nonvacuity.lean` builds one concrete machine with every linked
+bounded image. The helper is 12 bytes longer, so the entry point starts at
+`0x15e0` and every shared routine keeps its address. `allOutcomes`
+satisfies the bundled premises and selects the stated path and outcome
+for the empty, contained, and extension paths, both causes of fresh
+insertion, extension and fresh insertion with zero scratch (`FULL`), and
+fresh insertion into a full map (`FULL`). `modelRuns` applies the theorem.
+
+The bounded theorem reaches exactly the trapping theorem's 71 axioms: the
+Sail model's external declarations, `Classical.choice`, and `Quot.sound`.
+Kernel replay of the 24 new execution modules took 89 s. The two tables,
+their step lemmas, and the empty path replayed in 263 s.
+
+### Production overhead
+
+For the extracted `u32` production adapter, optimized x86-64 assembly with
+`Infallible` has the same instructions, call targets, and stack use as the
+trapping version on Rust 1.89 and 1.100.0, after renaming generic
+symbols. Only panic source locations differ. The production adapter binds
+the infallible result with `let Ok(()) = ...`, which Rust 1.89 accepts.

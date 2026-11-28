@@ -29,7 +29,7 @@ unsafe extern "C" {
         end: u32,
         scratch: *mut u32,
         scratch_capacity: u32,
-    );
+    ) -> u32;
     fn raw_vec_u32_insert(vec: *mut RawVec<u32>, index: u32, value: u32) -> u32;
     fn raw_vec_pair_insert(vec: *mut RawVec<Pair>, index: u32, value: Pair) -> u32;
     fn raw_vec_u32_remove(vec: *mut RawVec<u32>, index: u32) -> u32;
@@ -74,37 +74,4 @@ fn main() {
     // SAFETY: The test supplies the linked routine's storage contract.
     unsafe { range_insert_case::run(range_insert_u32) };
     runtime::println(format_args!("Range insertion PASS"));
-    #[cfg(any(feature = "range-map-full", feature = "range-scratch-full"))]
-    check_exhaustion();
-}
-
-#[cfg(any(feature = "range-map-full", feature = "range-scratch-full"))]
-fn check_exhaustion() {
-    use core::mem::MaybeUninit;
-
-    let mut backing = [
-        MaybeUninit::new(Pair { key: 4, value: 9 }),
-        MaybeUninit::uninit(),
-    ];
-    let mut scratch = MaybeUninit::<u32>::uninit();
-    let scratch_full = cfg!(feature = "range-scratch-full");
-    let mut map = RawVec {
-        data: backing.as_mut_ptr().cast(),
-        length: 1,
-        capacity: if scratch_full { 2 } else { 1 },
-    };
-    let mut length = 6;
-    // SAFETY: The initialized map, cardinality, and scratch have disjoint
-    // storage. The test deliberately supplies too little logical capacity.
-    unsafe {
-        range_insert_u32(
-            &mut map,
-            &mut length,
-            2,
-            3,
-            scratch.as_mut_ptr(),
-            u32::from(!scratch_full),
-        );
-    }
-    panic!("capacity exhaustion returned to the caller");
 }
