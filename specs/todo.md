@@ -1,5 +1,80 @@
 <!-- TODO0 consider deleting this spec once the work below is implemented and released. -->
 
+# Medium article: Before publication
+
+The goal is a technical Medium article, not an academic research paper
+or a comprehensive verification framework.
+
+This checklist governs project priorities across development sessions.
+
+## Phase 1: Establish and merge the verified baseline
+
+- [x] Strengthen the header-preservation postcondition (H1). The writable header region is now only the length word, and `InsertionPremises.run` states that the data pointer and capacity are preserved.
+- [x] Correct the documented dependency revision.
+- [x] Document that the conservative scratch-capacity premise (M1) is sufficient but not necessary. Strengthening the theorem is deferred to the OOM work.
+- [x] Resolve remaining merge-blocking review findings. The review listed H1, the dependency revision, and M1 as merge-blocking.
+- [x] Pass full proof build, kernel replay, and axiom audit. On merged `main` (November 27, 2026): `just prove` passed, and `just kernel-check` replayed all 102 modules.
+- [x] Merge `production-api` and repin riscfree. It fast-forwarded the dependency's `main` to `09f0d01`, the revision riscfree already pinned, so no repin was needed.
+- [x] Obtain approval and merge `range-insert`.
+
+## Phase 2: Additional verification
+
+- [ ] Return OOM status and prove failure semantics.
+- [ ] Prove that discarding the set after OOM is safe.
+- [ ] Verify zero production overhead from `Infallible`.
+- [ ] Prove correctness over a sequence of successful insertions.
+- [ ] Connect cardinality to `ncard`.
+- [ ] Prove compositional stack-space bounds, including the complete range-insertion routine.
+- [ ] Establish a closed-form instruction-count bound.
+- [ ] Prove the firmware shim. Do this after the OOM work, since the calling convention or return-value handling may change.
+- [ ] Add a negative test for `checkCalls`.
+
+## Phase 3: Testing and reproducibility
+
+- [ ] Pass ESP32-C3 hardware tests on the final implementation. The pre-OOM baseline passed on November 27, 2026, including `Range insertion PASS`; rerun after the OOM changes.
+- [ ] Integrate with the QEMU harness.
+- [ ] Pin the Rust toolchain.
+- [ ] Run `just prove` in CI. On a fresh checkout, `just prove` fails because `scripts/check_proof_sources.py` runs before `lake build` has fetched the range-set-blaze-vibe-validation dependency. Fix this ordering when adding CI.
+- [ ] Add Lean 4.28 to the mathematical repository's CI matrix.
+
+## Infrastructure
+
+- [ ] Speed up proof builds and axiom audits where there is low-hanging fruit.
+
+Improve reusable proof infrastructure only as needed by the approved work.
+
+## Article preparation
+
+- [ ] Measure machine-code size and instruction counts.
+- [ ] Report provable maximum stack usage.
+- [ ] Summarize proof reuse and development costs.
+- [ ] Describe AI successes, failures, and human interventions.
+- [ ] Document trusted assumptions and verification limitations.
+- [ ] Provide reproducible build and verification commands.
+
+## Scope and workflow rules
+
+- This section governs priorities and supersedes conflicting requirements elsewhere in this document.
+- Complete Phase 1 before undertaking Phase 2.
+- Do not expand the project without approval.
+- Existing TODO items outside this list are deferred until after publication.
+- In particular, defer arbitrary-backend correctness, range removal, and general-purpose proof automation.
+- Preserve the existing bounded-backend OOM specification: no rollback, transactional semantics, or preliminary capacity checks.
+- Mark items complete only after verifying their completion.
+- Record significant results, measurements, and lessons as the work progresses, rather than reconstructing them during article preparation.
+- Keep this checklist current across agents and development sessions.
+- This is a project-wide plan, not an assignment to complete in a single session.
+
+
+- [ ] Cover all legitimate collection and scratch capacities, including
+      zero, and prove that OOM is never returned spuriously.
+- [ ] Establish the validity of all memory accesses, including reads,
+      on both successful and failed executions.
+
+---
+
+# Detailed specifications, project history, and deferred work
+
 # Plan: from RawVec to RangeSetBlaze
 
 The processor infrastructure is now strong enough to build on: Sail fetch
@@ -51,7 +126,7 @@ The cost is recorded in `docs/rawvec-remove-cost.md`.
 ## 3. Minimal ordered map with linear search
 
 Status: both bounds, insertion, and removal have Sail proofs and concrete
-nonvacuity witnesses on the `sorted-map` branch. See
+nonvacuity witnesses, merged into `main`. See
 [the sorted-map proof and cost notes](../docs/sorted-map.md).
 
 Implement and verify the smallest ordered-map operations that RangeSetBlaze's
@@ -62,11 +137,24 @@ not as the machine-code interface (see `research/vec-ffi/REPORT.md`).
 
 ## 4. Connect to the RangeSetBlaze insertion algorithm
 
+Status: proved and merged into `main` on November 27, 2026. See
+`docs/range-insert.md`. `InsertionPremises.run` in
+`proof/RangeInsert/Theorem.lean` covers the empty, contained, extension, and
+fresh paths. It gives the exact instruction count, the ABI return, and
+preservation of registers and memory outside the writable regions. It also
+proves that the stored map and cache represent the production model
+`internalAddProduction`, whose result is the union with its cardinality
+cached. Nonvacuity witnesses exercise every successful branch.
+
 Connect these operations to RangeSetBlaze's actual insertion algorithm
 (`internal_add2` and `delete_extra`) and to its existing abstract Lean proof.
 `research/vec-ffi/REPORT.md` already lists what bounded storage forces:
 capacity exhaustion before the deletion pass, failure that leaves the
 collection unchanged, and the byte-size and overflow premises.
+
+The ESP32-C3 firmware test passed on the board on November 27, 2026,
+including `Range insertion PASS`. The firmware shim's formal proof remains
+open (Phase 2, after the OOM work).
 
 ## Deferred infrastructure
 
@@ -118,3 +206,42 @@ Measured on the 32-thread development machine with everything built:
 - Prefer statically proved bounds over runtime stack-overflow checks. Document insufficient stack space as outside the correctness theorem's premises.
 
 The current sorted-map removal routine requires 16 additional bytes, independent of map size.
+The range-insertion helper's nested calls use at most 112 bytes for the uncompressed routines.
+
+### Backend-independent algorithm correctness
+
+- Specify the mathematical contracts of the collection traits, including ordered lookup, lazy traversal, insertion, removal, and capacity exhaustion.
+- Prove that the shared RangeSetBlaze insertion algorithm is correct for any backend satisfying these contracts.
+- Establish that the verified bounded sorted-map backend satisfies the contracts.
+- Investigate how to establish that the production `BTreeMap` and `Vec` backend satisfies the same contracts.
+- Distinguish backend-independent algorithm correctness from the machine-code correctness of a particular compiled instantiation.
+
+Explore whether this approach generalizes to other existing Rust algorithms through the substitution of simpler, verification-friendly collection backends.
+
+### range-set-blaze-vibe-validation
+
+- Leave its `python` branch alone for now. Later, review whether its work should be merged. It is another example of the value of having a single mathematical proof library serving multiple implementations.
+- Add a second Lean version (4.28, which riscfree pins) to its CI matrix, so that future mathematical improvements cannot inadvertently break riscfree compatibility.
+
+### Proof automation
+
+- Consider incorporating a generalized version of the instruction-lemma generator into riscfree. It currently lives in `~/deldir/riscfree-range-insert/generate_delete_extra_steps.py`. Generating 111 instruction proofs with only one systematic correction is strong evidence that this machinery could be reusable. The generated proofs still pass through Lean's kernel, so we need not trust the generator for logical correctness, but we still inspect what its theorems state.
+- Automate proofs of conventional function prologues and epilogues. Compiler-generated stack management is highly mechanical. Ideally, a future riscfree tool could recognize these instruction sequences and automatically generate their frame contracts and proofs. This would complement the instruction-lemma generator.
+
+### Bounded-backend failure
+
+- [ ] **Return OOM status from the bounded range-insertion backend.** After completing the current machine-code proof, change the generic collection interface to propagate allocation failures via `Result`, preferably with an associated error type. The production `BTreeMap`/`Vec` backend uses `Infallible` and retains its existing allocation-failure behavior. The bounded RISC-V backend returns an OOM status instead of trapping when either the map or the deletion-key buffer runs out of capacity.
+  - On success, retain the existing correctness guarantees.
+  - On OOM, guarantee memory safety, stack restoration, and preservation of unrelated memory. The caller must discard the set; its contents, canonical representation, and cached cardinality need not remain valid.
+  - Do not introduce rollback, transactional semantics, or preliminary capacity checks.
+  - Verify that monomorphization and inlining eliminate the OOM return paths in production, with no runtime overhead.
+  - Update the machine-code proofs and tests to cover both successful execution and OOM returns.
+
+Consider tracking all 31 writable integer registers in a common snapshot structure for future projects, provided doing so doesn't substantially increase Lean's elaboration costs.
+
+OOM Spec addition:
+- Cover all valid map and scratch-buffer capacities, including zero.
+- Remove sufficient-capacity premises from the top-level theorem.
+- Prove that insertion succeeds whenever the actual intermediate
+  storage requirements are met and returns OOM otherwise.
+- Do not permit spurious OOM returns.

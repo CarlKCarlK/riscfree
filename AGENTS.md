@@ -38,3 +38,31 @@ they are more specific.
   introducing additional calling shims.
 - Document any exceptions and their effect on the formal guarantees, as
   `docs/rawvec-assurance.md` does for the ESP32-C3 shims.
+
+## Verification rules
+
+- **Legitimate states.** Cover all legitimate inputs and states.
+  Do not strengthen preconditions merely to simplify proofs.
+
+- **Resource exhaustion.** Cover all valid collection and scratch
+  capacities, including zero. Succeed when sufficient resources exist;
+  otherwise, return the specified error. Do not permit spurious OOM.
+
+- **Memory safety.** Prove the validity of all reads and writes,
+  not just preservation of unrelated memory. Cover failure paths
+  as well as successful paths.
+
+- **Repeated calls.** Successful operations must reestablish all
+  invariants needed for subsequent calls, including allocation metadata.
+  Prove that operation theorems compose.
+
+- **Failure states.** Specify which invariants and operations remain
+  valid after failure. If the caller must discard an object, prove
+  that discarding it is safe.
+
+- **Stack space.** Prefer statically proved, compositional stack-space
+  bounds over runtime stack-overflow checks.
+
+- **Specification review.** Review what each theorem states, not merely
+  whether Lean accepts its proof. Look for unnecessarily restrictive
+  premises, missing postconditions, and vacuous guarantees.

@@ -26,9 +26,8 @@ extension length before that pass. The explicit loop implements the
 production `map_while(...).collect()` stopping and append order.
 
 The mathematical proofs come from range-set-blaze-vibe-validation, a
-pinned Lake dependency (commit `09f0d01d` on its `production-api`
-branch, one commit after `d7837025` on its `main`), so riscfree keeps no
-copy of them. That commit exposes the fresh and extension branches of the
+pinned Lake dependency (commit `09f0d01d` on its `main`), so riscfree
+keeps no copy of them. That commit exposes the fresh and extension branches of the
 production model (`internalAddProduction_fresh` and
 `internalAddProduction_extension`), which `Theorem.lean` uses. The
 library is in the `RangeSetBlazeValidation` namespace, because Sail also
@@ -168,7 +167,9 @@ decode table, the search theorem, and the empty path's frame lemmas.
   `just test-range-insert-exhaustion` verifies the two expected traps.
 - `just build-raw-vec` checks the ESP32-C3 ELF. After flashing with
   `just run-raw-vec`, the firmware should print `Range insertion PASS`.
-  A physical run is pending.
+  The physical ESP32-C3 run passed on November 27, 2026, printing
+  `Range insertion PASS`. That run goes through the compressed caller's
+  firmware shim, whose formal proof is still pending.
 - The ELF checks cover both range insertion symbols, including trap bytes,
   their eight call sites, the existing collection callees, and the firmware
   shim. The negative fixtures modify an instruction byte, a linked call
