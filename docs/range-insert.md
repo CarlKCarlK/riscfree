@@ -296,3 +296,13 @@ machines and exercise zero and positive capacities, including both
 nonempty map search exits. Elaboration took 4.61 s for the status module
 and 4.91 s for its witnesses. Independent kernel replay of the three
 Phase 2 modules took 11.07 s.
+
+`RangeInsert.OomReturn` checks the common outer OOM epilogue of the
+candidate binary. It reads seven initialized save slots, puts `FULL`
+in `a0`, and restores the outer frame and return address in ten
+instructions. It changes no memory. All 40 bytes at entry offset
+`0x1a0` agree in the QEMU and firmware ELFs. The concrete witness starts
+with different values in the registers being restored. Elaboration
+took 22.63 s for the epilogue and 5.41 s for the witness. Independent
+kernel replay took 21.47 s. The callers still need proofs that reach
+this fragment with the required saved words.
