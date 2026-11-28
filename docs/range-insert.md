@@ -267,3 +267,22 @@ exact path-specific counts (`freshScratch` and `extensionScratch`) for
 the machine facts. `Call.resultRepresents` and
 `internalAddProduction_correct` do not depend on scratch. A tighter
 premise for `InsertionPremises.run` is deferred.
+
+## Phase 2 capacity model
+
+`RangeInsert.Capacity` defines the demand of each insertion path. Empty
+and contained inputs need no new slots. Extension needs one scratch word
+per accepted successor. Fresh insertion also needs one transient map
+slot, even if subsequent deletions would make the result fit in the
+original capacity. The model computes the fresh scratch demand using
+the pure vector insertion result, which is independent of the actual
+map capacity.
+
+The capacity classification reuses `Call.path` and
+`DeleteExtra.Call.acceptCount`. The success case is equivalent to the
+path-specific storage premises of the existing execution proof.
+Concrete model examples cover zero capacity, exact fit, scratch one
+word short, and map failure taking precedence when both are short.
+The module elaborated in 5.98 s with a peak RSS of about 6.5 GiB using
+the baseline build artifacts. These results describe the capacity model.
+The machine proof still uses the Phase 1 binary.
