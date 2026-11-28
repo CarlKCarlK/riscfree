@@ -286,3 +286,13 @@ word short, and map failure taking precedence when both are short.
 The module elaborated in 5.98 s with a peak RSS of about 6.5 GiB using
 the baseline build artifacts. These results describe the capacity model.
 The machine proof still uses the Phase 1 binary.
+
+`RangeInsert.CapacityStatus` composes the existing sorted-map and RawVec
+runs with the status checks needed by range insertion. A full fresh
+insert modifies only the callee stack frame. A full scratch append
+returns in seven instructions with memory unchanged, and it needs only
+the scratch header. The nonvacuity witnesses reuse the collection model
+machines and exercise zero and positive capacities, including both
+nonempty map search exits. Elaboration took 4.61 s for the status module
+and 4.91 s for its witnesses. Independent kernel replay of the three
+Phase 2 modules took 11.07 s.
