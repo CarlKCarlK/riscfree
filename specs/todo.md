@@ -23,7 +23,7 @@ This checklist governs project priorities across development sessions.
 - [ ] Prove that discarding the set after OOM is safe.
 - [ ] Verify zero production overhead from `Infallible`.
 - [ ] Prove correctness over a sequence of successful insertions.
-- [ ] Connect cardinality to `ncard`.
+- [x] Connect cardinality to `ncard`. `RangeSetBlaze.cardinality_eq_ncard` proves that every canonical range set's count equals `s.toSet.ncard`. Lean 4.33.1 and 4.28.0-rc1 both passed the build, regression checks, and kernel replay of the new module. The theorem composes with production insertion's cached-length and union guarantees. See [the mathematical proof](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/blob/fe8832a/RangeSetBlaze/Cardinality.lean).
 - [ ] Prove compositional stack-space bounds, including the complete range-insertion routine.
 - [ ] Prove the firmware shim. Do this after the OOM work, since the calling convention or return-value handling may change.
 - [ ] Add a negative test for `checkCalls`.
@@ -34,7 +34,7 @@ This checklist governs project priorities across development sessions.
 - [ ] Integrate with the QEMU harness.
 - [x] Pin the Rust toolchain. `rust-toolchain.toml` pins rustc 1.100.0, which built the verified binaries; `just prove` passed with it on November 27, 2026.
 - [ ] Run `just prove` in CI. On a fresh checkout, `just prove` fails because `scripts/check_proof_sources.py` runs before `lake build` has fetched the range-set-blaze-vibe-validation dependency. Fix this ordering when adding CI.
-- [ ] Add Lean 4.28 to the mathematical repository's CI matrix.
+- [x] Add Lean 4.28.0-rc1 to the mathematical repository's CI matrix. The compatibility job uses the same locked Mathlib and transitive dependency revisions as riscfree. Both matrix jobs passed `lake build` and `lake test` on the `lean-ci-cardinality` feature branch ([run](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/actions/runs/46100115283)). The branch was fast-forward merged into the mathematical repository's `main` at `fe8832a`, where both jobs passed again ([run](https://github.com/CarlKCarlK/range-set-blaze-vibe-validation/actions/runs/46101248745)).
 
 ## Infrastructure
 
@@ -221,7 +221,8 @@ Explore whether this approach generalizes to other existing Rust algorithms thro
 ### range-set-blaze-vibe-validation
 
 - Leave its `python` branch alone for now. Later, review whether its work should be merged. It is another example of the value of having a single mathematical proof library serving multiple implementations.
-- Add a second Lean version (4.28, which riscfree pins) to its CI matrix, so that future mathematical improvements cannot inadvertently break riscfree compatibility.
+- Its `main` (merged at `fe8832a`) adds Lean 4.28.0-rc1 alongside the default Lean 4.33.1 job. Both jobs verify the same proof sources.
+- [ ] Update riscfree's dependency pin (`lakefile.toml` and `lake-manifest.json`, now `09f0d01`) to `fe8832a` or later, so riscfree can use `RangeSetBlaze.cardinality_eq_ncard`. Wait until the OOM proof work in the `riscfree-range-insert-oom` worktree lands, then rerun `just prove`.
 
 ### Proof automation
 
