@@ -306,3 +306,11 @@ with different values in the registers being restored. Elaboration
 took 22.63 s for the epilogue and 5.41 s for the witness. Independent
 kernel replay took 21.47 s. The callers still need proofs that reach
 this fragment with the required saved words.
+
+The baseline success theorem now invokes `MapStorage.metadataKept`
+through `InitialLayout.metadataKept`. The same lemma can recover the
+data pointer and capacity on a failure path once that path establishes
+the write footprint. It does not depend on the final length or on
+canonical ranges. The success theorem's statement and witness
+statements were unchanged. Kernel replay of the theorem and its
+layout witness took 9.10 s.

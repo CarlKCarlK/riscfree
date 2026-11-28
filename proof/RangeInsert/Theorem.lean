@@ -420,6 +420,50 @@ theorem Call.resultRepresents {set : RangeSetBlaze} {call : Call} (initial : Sna
       (Nat.le_of_not_gt grows)
     exact unchangedRepresents represents _ low high _ (by rw [model]) (by rw [model])
 
+/-- Preserving the immutable header bytes preserves the allocation pointer
+and capacity even when the initialized prefix has changed. -/
+theorem MapStorage.metadataKept {original : Machine} {call : Call} {capacity : Word}
+    (map : MapStorage original call capacity) {after : ByteMemory}
+    (agrees : ∀ byte, (mapHeader call).Contains byte → ¬ (mapLengthWord call).Contains byte →
+      after[byte]? = original.mem[byte]?) :
+    WordAt after call.header.toNat call.data ∧
+      WordAt after (call.header.toNat + 8) capacity := by
+  have keptHeader {address : Nat} {value : Word} (word : WordAt original.mem address value)
+      (inside : ∀ byte, address ≤ byte → byte < address + 4 →
+        (mapHeader call).Contains byte ∧ ¬ (mapLengthWord call).Contains byte) :
+      WordAt after address value :=
+    word.congr fun byte low high =>
+      agrees byte (inside byte low high).1 (inside byte low high).2
+  have dataKept := keptHeader map.dataWord fun byte low high => by
+    refine ⟨⟨low, by change byte < call.header.toNat + 12; omega⟩, fun length => ?_⟩
+    change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4 at length
+    omega
+  have capacityKept := keptHeader map.capacityWord fun byte low high => by
+    refine ⟨⟨by change call.header.toNat ≤ byte; omega, by change byte < call.header.toNat + 12; omega⟩,
+      fun length => ?_⟩
+    change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4 at length
+    omega
+  exact ⟨dataKept, capacityKept⟩
+
+/-- The machine write footprint permits only the length word of the map
+header to change. Separation keeps the other regions away from it. -/
+theorem InitialLayout.metadataKept {base : Word} {original : Machine} {initial : Snapshot}
+    {call : Call} {capacity low high : Word}
+    (layout : InitialLayout base original initial call capacity low high) {after : ByteMemory}
+    (keep : ∀ byte, ¬ WritableByte initial call capacity byte → after[byte]? = original.mem[byte]?) :
+    WordAt after call.header.toNat call.data ∧
+      WordAt after (call.header.toNat + 8) capacity := by
+  apply layout.map.metadataKept
+  intro byte inHeader notLength
+  apply keep byte
+  intro writable
+  rcases writable with stack | cache | scratch | length | map
+  · exact layout.apart.headerStack byte inHeader stack
+  · exact layout.apart.headerCache byte inHeader cache
+  · exact layout.apart.headerScratch byte inHeader scratch
+  · exact notLength length
+  · exact layout.apart.headerMap byte inHeader map
+
 /-- The linked range insertion returns to its caller after an exact number
 of instructions, preserves every register outside the caller-saved list and
 every byte it may not write, and stores the production model's result: the
@@ -445,29 +489,7 @@ theorem InsertionPremises.run {base returnAddress : Word} {original : Machine}
   obtain ⟨final, ran, returned, stored, regs, keep⟩ := premises.toPremises.run
   have correct := internalAddProduction_correct set (BitVec.append high low).toNat call.input
     premises.accurate
-  have apart := premises.layout.apart
-  -- A header byte outside the length word is in no writable region.
-  have keptHeader {address : Nat} {value : Word} (word : WordAt original.mem address value)
-      (inside : ∀ byte, address ≤ byte → byte < address + 4 →
-        (mapHeader call).Contains byte ∧ ¬ (mapLengthWord call).Contains byte) :
-      WordAt final.mem address value :=
-    word.congr fun byte low high => keep byte fun writable => by
-      obtain ⟨inHeader, notLength⟩ := inside byte low high
-      rcases writable with stack | cache | scratch | length | map
-      · exact apart.headerStack byte inHeader stack
-      · exact apart.headerCache byte inHeader cache
-      · exact apart.headerScratch byte inHeader scratch
-      · exact notLength length
-      · exact apart.headerMap byte inHeader map
-  have dataKept := keptHeader premises.layout.map.dataWord fun byte low high => by
-    refine ⟨⟨low, by change byte < call.header.toNat + 12; omega⟩, fun length => ?_⟩
-    change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4 at length
-    omega
-  have capacityKept := keptHeader premises.layout.map.capacityWord fun byte low high => by
-    refine ⟨⟨by change call.header.toNat ≤ byte; omega, by change byte < call.header.toNat + 12; omega⟩,
-      fun length => ?_⟩
-    change call.header.toNat + 4 ≤ byte ∧ byte < call.header.toNat + 4 + 4 at length
-    omega
+  obtain ⟨dataKept, capacityKept⟩ := premises.layout.metadataKept keep
   exact ⟨final, ran, returned, stored, dataKept, capacityKept, regs, keep,
     call.resultRepresents initial premises.represents premises.accurate premises.spare, correct⟩
 
